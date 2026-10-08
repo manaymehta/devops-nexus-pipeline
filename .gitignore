@@ -1,0 +1,6 @@
+# Editor / OS files (app-specific ignores live in app/.gitignore)
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
