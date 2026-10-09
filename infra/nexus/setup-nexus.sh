@@ -13,7 +13,7 @@
 #   6. Creates the user "ci" with NEXUS_CI_PASSWORD and that role.
 #
 # Usage (Linux, macOS, or Git Bash on Windows), from this folder:
-#   cp .env.example .env    # then edit the two passwords
+#   cp .env.example .env    # then set the two passwords and NEXUS_ACCEPT_EULA
 #   bash setup-nexus.sh
 #
 # Settings come from the environment or from .env next to this script:

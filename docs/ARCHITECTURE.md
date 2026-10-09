@@ -220,8 +220,36 @@ flowchart LR
 
 ---
 
-## 9. Security and configuration notes
+## 9. Nexus setup and its automated test - Implemented
+
+`infra/nexus/docker-compose.yml` runs Nexus 3.96.4 (Community Edition) with a 1 GB heap. `infra/nexus/setup-nexus.sh` configures it through the REST API:
+
+```mermaid
+flowchart LR
+    wait["Wait until<br/>Nexus is ready"] --> pw["Replace generated<br/>admin password"]
+    pw --> eula["Accept Community<br/>Edition EULA"]
+    eula --> realm["Enable Docker<br/>login realm"]
+    realm --> repo["Create docker-hosted<br/>registry on :8082"]
+    repo --> role["Create role<br/>ci-deployer"]
+    role --> user["Create user ci"]
+```
+
+Every step checks first whether it is already done, so the script can be re-run safely.
+
+The workflow `.github/workflows/nexus-setup-test.yml` runs this setup on a throwaway Nexus inside a GitHub-hosted runner, then exercises the real pipeline path:
+- publish a SNAPSHOT and a release jar
+- confirm a duplicate release is rejected
+- download the jar from Nexus and build the image from it
+- push the image to the registry, delete it locally, pull it back, run it, and check `/api/version`
+
+The procedure for the real host machine is in [`SETUP.md`](SETUP.md).
+
+---
+
+## 10. Security and configuration notes
 
 - Nexus credentials are never stored in the repository. Workflows read them from the GitHub Secrets `NEXUS_USER` and `NEXUS_PASSWORD`.
 - The container runs as a non-root user.
+- Nexus anonymous access is disabled. The pipeline uses a dedicated `ci` user whose role only covers the three repositories it needs.
+- Nexus passwords on the host live in `infra/nexus/.env`, which is git-ignored.
 - The Nexus Docker registry uses plain HTTP on `localhost:8082`. Docker allows unencrypted registries on `localhost` by default. A registry on any other address would need HTTPS or an `insecure-registries` entry in the Docker daemon settings.

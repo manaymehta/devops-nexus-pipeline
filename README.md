@@ -30,7 +30,7 @@ Solid arrows are implemented and running on every push. Dotted arrows are the Ne
 | Automated testing | 13 JUnit tests in `app/src/test` | Done |
 | Containerization (Docker) | `app/Dockerfile` | Done |
 | CI/CD pipeline | `.github/workflows/ci.yml` (GitHub Actions) | CI done, release/deploy planned |
-| Artifact management (Nexus) | Publish, store and reuse versions | Planned |
+| Artifact management (Nexus) | `infra/nexus/` setup + Maven publishing config, verified in CI by `nexus-setup-test.yml` | Setup done, host machine pending |
 | Deployment | Container deployed from an image stored in Nexus | Planned |
 | Documentation + demo | `README.md`, `docs/` | In progress |
 
@@ -39,18 +39,24 @@ Solid arrows are implemented and running on every push. Dotted arrows are the Ne
 | Document | Purpose |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the project works: concepts, components, and diagrams of every flow |
+| [`docs/SETUP.md`](docs/SETUP.md) | Step-by-step setup of the machine that hosts Nexus, the runner and the deployed app |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | Current state, fixed names and settings, environment facts, and remaining work, for anyone (or any AI assistant) continuing the project |
 
 ## Repository layout
 
 ```
-.github/workflows/ci.yml   CI pipeline, runs on GitHub's cloud runners
+.github/workflows/
+  ci.yml                   CI pipeline, runs on GitHub's cloud runners
+  nexus-setup-test.yml     Tests infra/nexus + publishing on a throwaway Nexus
 app/                       Spring Boot application (Java 21, Maven)
-  pom.xml                  Build definition: name, version, dependencies
+  pom.xml                  Build definition: name, version, dependencies, Nexus URLs
+  ci-settings.xml          Nexus credentials for Maven, read from environment variables
   Dockerfile               Runtime image built from an already-built jar
   src/main/...             Task API and /api/version endpoint
   src/test/...             Unit tests and API tests
-docs/                      Architecture and hand-off documentation
+infra/nexus/               Nexus: docker-compose.yml, setup-nexus.sh, .env.example
+docs/                      Architecture, setup and hand-off documentation
+AGENTS.md                  Context file loaded automatically by AI coding assistants
 ```
 
 ## The application
