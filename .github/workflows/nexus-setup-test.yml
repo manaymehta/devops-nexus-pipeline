@@ -113,6 +113,15 @@ jobs:
               | grep -E '"(name|version)"' || true
           done
 
+      - name: Nexus security state (on failure)
+        if: failure()
+        run: |
+          A="admin:$NEXUS_ADMIN_PASSWORD"; API=http://localhost:8081/service/rest/v1
+          echo "== role ci-deployer"; curl -s -u "$A" "$API/security/roles/ci-deployer"; echo
+          echo "== user ci"; curl -s -u "$A" "$API/security/users?userId=ci"; echo
+          echo "== privileges mentioning maven-snapshots or docker-hosted"
+          curl -s -u "$A" "$API/security/privileges" | grep -oE '"name" *: *"[^"]*(maven-snapshots|docker-hosted)[^"]*"'
+
       - name: Nexus logs
         if: failure()
         run: docker logs nexus 2>&1 | tail -100
