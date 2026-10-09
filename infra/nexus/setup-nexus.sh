@@ -3,9 +3,11 @@
 # Safe to run more than once: every step checks the current state first.
 #
 #   1. Waits until Nexus is ready.
-#   2. Replaces the generated admin password with NEXUS_ADMIN_PASSWORD.
-#   3. Activates the Docker Bearer Token Realm (needed for `docker login`) and disables
-#      anonymous access (otherwise Maven gets 403 and never sends credentials).
+#   2. Replaces the generated admin password with NEXUS_ADMIN_PASSWORD, and accepts the
+#      Community Edition EULA when NEXUS_ACCEPT_EULA=yes. Until the EULA is accepted, Nexus
+#      answers every repository request (even from admin) with 403.
+#   3. Activates the Docker Bearer Token Realm (needed for `docker login`) and makes sure
+#      anonymous access is disabled.
 #   4. Creates the Docker hosted repository "docker-hosted" with an HTTP connector on port 8082.
 #   5. Creates the role "ci-deployer" (read/write on maven-releases, maven-snapshots, docker-hosted).
 #   6. Creates the user "ci" with NEXUS_CI_PASSWORD and that role.
@@ -17,6 +19,7 @@
 # Settings come from the environment or from .env next to this script:
 #   NEXUS_ADMIN_PASSWORD  required
 #   NEXUS_CI_PASSWORD     required
+#   NEXUS_ACCEPT_EULA     must be "yes" on first setup (see .env.example)
 #   NEXUS_URL             default http://localhost:8081
 #   NEXUS_CONTAINER       default nexus (container name from docker-compose.yml)
 set -euo pipefail
@@ -96,6 +99,23 @@ else
   log "Admin password changed"
 fi
 
+# 2b. Community Edition EULA ------------------------------------------------------------------
+eula="$(request -u "$ADMIN_AUTH" "$API/system/eula")"
+if echo "$eula" | grep -qE '"accepted" *: *true'; then
+  log "EULA already accepted"
+else
+  if [[ "${NEXUS_ACCEPT_EULA:-}" != "yes" ]]; then
+    echo "ERROR: Nexus Community Edition requires accepting its End User License Agreement:" >&2
+    echo "  https://links.sonatype.com/products/nxrm/ce-eula" >&2
+    echo "After reading it, set NEXUS_ACCEPT_EULA=yes in .env and run this script again." >&2
+    exit 1
+  fi
+  # The API requires the exact disclaimer text it returned, with accepted set to true.
+  accepted="$(echo "$eula" | sed -E 's/"accepted" *: *false/"accepted" : true/')"
+  request -u "$ADMIN_AUTH" -X POST -H 'Content-Type: application/json'     --data "$accepted" "$API/system/eula" >/dev/null
+  log "EULA accepted"
+fi
+
 # 3. Docker Bearer Token Realm ----------------------------------------------------------------
 realms="$(request -u "$ADMIN_AUTH" "$API/security/realms/active")"
 if [[ "$realms" == *'"DockerToken"'* ]]; then
@@ -109,8 +129,8 @@ else
 fi
 
 # 3b. Anonymous access ------------------------------------------------------------------------
-# With anonymous access on, Nexus answers a request without credentials with 403 instead of
-# 401, so Maven never retries with the CI user's credentials and publishing fails.
+# Every request to Nexus must be authenticated. Fresh installs already have this off;
+# the check keeps it that way.
 anon="$(request -u "$ADMIN_AUTH" "$API/security/anonymous")"
 if echo "$anon" | grep -qE '"enabled" *: *false'; then
   log "Anonymous access already disabled"
