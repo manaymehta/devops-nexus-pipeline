@@ -28,7 +28,20 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- Base URL of the Nexus server. Override with -Dnexus.url=... if Nexus is elsewhere. -->
+		<nexus.url>http://localhost:8081</nexus.url>
 	</properties>
+	<!-- Where `mvn deploy` publishes the jar. Credentials for these ids come from ci-settings.xml. -->
+	<distributionManagement>
+		<repository>
+			<id>nexus-releases</id>
+			<url>${nexus.url}/repository/maven-releases/</url>
+		</repository>
+		<snapshotRepository>
+			<id>nexus-snapshots</id>
+			<url>${nexus.url}/repository/maven-snapshots/</url>
+		</snapshotRepository>
+	</distributionManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

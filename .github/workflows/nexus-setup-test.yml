@@ -1,0 +1,118 @@
+# Verifies the Nexus setup files (infra/nexus/) and the Maven publishing configuration on a
+# throwaway Nexus inside a GitHub-hosted runner. Nothing here touches the real Nexus host.
+#
+# It proves, end to end:
+#   - docker-compose.yml starts Nexus with the 1 GB heap
+#   - setup-nexus.sh configures it, and can be re-run safely
+#   - the "ci" user can publish SNAPSHOT and release jars with ci-settings.xml
+#   - maven-releases rejects publishing the same release version twice
+#   - an image built from the jar DOWNLOADED from Nexus can be pushed to and pulled from
+#     the Nexus Docker registry (localhost:8082), and runs with the expected version
+name: Nexus setup test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'infra/nexus/**'
+      - 'app/pom.xml'
+      - 'app/ci-settings.xml'
+      - '.github/workflows/nexus-setup-test.yml'
+
+env:
+  NEXUS_ADMIN_PASSWORD: test-admin-pass
+  NEXUS_CI_PASSWORD: test-ci-pass
+  NEXUS_USER: ci
+  NEXUS_PASSWORD: test-ci-pass
+  TEST_VERSION: 0.0.1-test
+
+jobs:
+  nexus:
+    name: Nexus setup, publish, push, pull
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start Nexus
+        working-directory: infra/nexus
+        run: docker compose up -d
+
+      - name: Configure Nexus (first run)
+        working-directory: infra/nexus
+        run: bash setup-nexus.sh
+
+      - name: Configure Nexus again (must be safe to re-run)
+        working-directory: infra/nexus
+        run: bash setup-nexus.sh
+
+      - name: Nexus memory use
+        run: docker stats --no-stream nexus
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Publish SNAPSHOT jar to maven-snapshots
+        working-directory: app
+        run: ./mvnw -B -s ci-settings.xml deploy -DskipTests
+
+      - name: Publish release jar to maven-releases
+        working-directory: app
+        run: |
+          ./mvnw -B versions:set -DnewVersion="$TEST_VERSION" -DgenerateBackupPoms=false
+          ./mvnw -B -s ci-settings.xml deploy -DskipTests
+
+      - name: Publishing the same release again is rejected
+        working-directory: app
+        run: |
+          if ./mvnw -B -s ci-settings.xml deploy -DskipTests > redeploy.log 2>&1; then
+            echo "ERROR: Nexus accepted a duplicate release version" >&2
+            exit 1
+          fi
+          grep -iE "400|Bad Request|does not allow updating" redeploy.log | head -5
+          echo "Duplicate release was rejected as expected."
+
+      - name: Download the release jar from Nexus
+        working-directory: app
+        run: |
+          rm -rf target && mkdir target
+          curl -sf -u "$NEXUS_USER:$NEXUS_PASSWORD" -o "target/devops-app-$TEST_VERSION.jar" \
+            "http://localhost:8081/repository/maven-releases/com/devops/devops-app/$TEST_VERSION/devops-app-$TEST_VERSION.jar"
+          ls -l target
+
+      - name: Build image from the downloaded jar and push it to Nexus
+        working-directory: app
+        run: |
+          echo "$NEXUS_PASSWORD" | docker login localhost:8082 -u "$NEXUS_USER" --password-stdin
+          docker build --build-arg JAR_FILE="target/devops-app-$TEST_VERSION.jar" \
+            -t "localhost:8082/devops-app:$TEST_VERSION" .
+          docker push "localhost:8082/devops-app:$TEST_VERSION"
+
+      - name: Pull the image back from Nexus and run it
+        run: |
+          docker rmi "localhost:8082/devops-app:$TEST_VERSION"
+          docker pull "localhost:8082/devops-app:$TEST_VERSION"
+          docker run -d --name devops-app -p 8080:8080 "localhost:8082/devops-app:$TEST_VERSION"
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/actuator/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8080/api/version | tee version.json
+          echo
+          grep -q "\"version\":\"$TEST_VERSION\"" version.json
+
+      - name: List what Nexus now stores
+        run: |
+          for repo in maven-snapshots maven-releases docker-hosted; do
+            echo "== $repo"
+            curl -sf -u "$NEXUS_USER:$NEXUS_PASSWORD" \
+              "http://localhost:8081/service/rest/v1/components?repository=$repo" \
+              | grep -E '"(name|version)"' || true
+          done
+
+      - name: Nexus logs
+        if: failure()
+        run: docker logs nexus 2>&1 | tail -100

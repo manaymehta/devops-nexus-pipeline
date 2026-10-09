@@ -1,0 +1,27 @@
+# Sonatype Nexus Repository for the pipeline.
+#   Start:  docker compose up -d        (from this folder)
+#   Stop:   docker compose down         (data is kept in the nexus-data volume)
+#   Reset:  docker compose down -v      (deletes all Nexus data and stored artifacts)
+#
+# Port 8081: web UI and REST API, also used for Maven repositories.
+# Port 8082: Docker registry (HTTP connector of the docker-hosted repository,
+#            created by setup-nexus.sh).
+services:
+  nexus:
+    image: sonatype/nexus3:3.96.4
+    container_name: nexus
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+    environment:
+      # The image default is a 2703 MB heap. 1 GB is enough for this project.
+      # java.util.prefs.userRoot is part of the image's default value and must be kept.
+      INSTALL4J_ADD_VM_PARAMS: >-
+        -Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g
+        -Djava.util.prefs.userRoot=/nexus-data/javaprefs
+    volumes:
+      - nexus-data:/nexus-data
+
+volumes:
+  nexus-data:
