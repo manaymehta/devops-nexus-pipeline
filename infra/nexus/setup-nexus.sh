@@ -4,7 +4,8 @@
 #
 #   1. Waits until Nexus is ready.
 #   2. Replaces the generated admin password with NEXUS_ADMIN_PASSWORD.
-#   3. Activates the Docker Bearer Token Realm (needed for `docker login`).
+#   3. Activates the Docker Bearer Token Realm (needed for `docker login`) and disables
+#      anonymous access (otherwise Maven gets 403 and never sends credentials).
 #   4. Creates the Docker hosted repository "docker-hosted" with an HTTP connector on port 8082.
 #   5. Creates the role "ci-deployer" (read/write on maven-releases, maven-snapshots, docker-hosted).
 #   6. Creates the user "ci" with NEXUS_CI_PASSWORD and that role.
@@ -105,6 +106,19 @@ else
   request -u "$ADMIN_AUTH" -X PUT -H 'Content-Type: application/json' \
     --data "$updated" "$API/security/realms/active" >/dev/null
   log "Docker Bearer Token Realm activated"
+fi
+
+# 3b. Anonymous access ------------------------------------------------------------------------
+# With anonymous access on, Nexus answers a request without credentials with 403 instead of
+# 401, so Maven never retries with the CI user's credentials and publishing fails.
+anon="$(request -u "$ADMIN_AUTH" "$API/security/anonymous")"
+if echo "$anon" | grep -qE '"enabled" *: *false'; then
+  log "Anonymous access already disabled"
+else
+  updated="$(echo "$anon" | sed -E 's/"enabled" *: *true/"enabled" : false/')"
+  request -u "$ADMIN_AUTH" -X PUT -H 'Content-Type: application/json' \
+    --data "$updated" "$API/security/anonymous" >/dev/null
+  log "Anonymous access disabled"
 fi
 
 # 4. Docker hosted repository -----------------------------------------------------------------
