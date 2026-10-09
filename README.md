@@ -1,16 +1,56 @@
 # DevOps CI/CD Pipeline with Artifact Management (Nexus)
 
-A complete software delivery pipeline for a small Spring Boot REST API:
-**Git/GitHub → build → automated tests → artifact stored in Nexus → Docker image → deployment → rollback**.
+A college DevOps lab project. It demonstrates a complete **software delivery pipeline**: an automated sequence of steps that takes source code from a `git push` to a running, tested application. Every built version is stored in an **artifact repository** (Sonatype Nexus) so that any version can be redeployed later without rebuilding it.
+
+The application itself is deliberately small (a to-do list REST API). The subject of the project is the pipeline that builds, tests, packages, stores and deploys it.
+
+## The pipeline at a glance
+
+```mermaid
+flowchart LR
+    dev["Developer<br/>git push"] --> gh["GitHub<br/>repository"]
+    gh --> ci["GitHub Actions<br/>CI workflow"]
+    ci --> build["Build + test<br/>Maven, JUnit"]
+    build --> jar["devops-app.jar<br/>the artifact"]
+    jar --> img["Docker image"]
+    img --> smoke["Smoke test<br/>container answers?"]
+    jar -. planned .-> nexus[("Nexus<br/>Repository")]
+    img -. planned .-> nexus
+    nexus -. planned .-> deploy["Deployed<br/>container"]
+```
+
+Solid arrows are implemented and running on every push. Dotted arrows are the Nexus stages that are designed but not built yet.
+
+## Assignment requirements and where each one is met
+
+| Requirement | Where | Status |
+|---|---|---|
+| Version control (Git/GitHub) | This repository | Done |
+| Application build | `app/` with Maven (`./mvnw verify`) | Done |
+| Automated testing | 13 JUnit tests in `app/src/test` | Done |
+| Containerization (Docker) | `app/Dockerfile` | Done |
+| CI/CD pipeline | `.github/workflows/ci.yml` (GitHub Actions) | CI done, release/deploy planned |
+| Artifact management (Nexus) | Publish, store and reuse versions | Planned |
+| Deployment | Container deployed from an image stored in Nexus | Planned |
+| Documentation + demo | `README.md`, `docs/` | In progress |
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the project works: concepts, components, and diagrams of every flow |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Current state, fixed names and settings, environment facts, and remaining work, for anyone (or any AI assistant) continuing the project |
 
 ## Repository layout
 
 ```
-.github/workflows/ci.yml   CI pipeline (runs on GitHub's cloud runners)
+.github/workflows/ci.yml   CI pipeline, runs on GitHub's cloud runners
 app/                       Spring Boot application (Java 21, Maven)
-  src/main/...             Task API + /api/version endpoint
-  src/test/...             Unit tests and API tests (JUnit, MockMvc)
+  pom.xml                  Build definition: name, version, dependencies
   Dockerfile               Runtime image built from an already-built jar
+  src/main/...             Task API and /api/version endpoint
+  src/test/...             Unit tests and API tests
+docs/                      Architecture and hand-off documentation
 ```
 
 ## The application
@@ -18,22 +58,22 @@ app/                       Spring Boot application (Java 21, Maven)
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/tasks` | List tasks |
-| `POST /api/tasks` `{"title": "..."}` | Create a task (blank titles are rejected with 400) |
-| `GET /api/tasks/{id}` | Get one task |
+| `POST /api/tasks` with `{"title": "..."}` | Create a task. A blank title is rejected with HTTP 400. |
+| `GET /api/tasks/{id}` | Get one task, or HTTP 404 if it does not exist |
 | `PATCH /api/tasks/{id}/complete` | Mark a task done |
 | `DELETE /api/tasks/{id}` | Delete a task |
-| `GET /api/version` | Name, version and build time of the running build. Used to prove which version is deployed. |
-| `GET /actuator/health` | Health check used by the smoke test and Docker `HEALTHCHECK` |
+| `GET /api/version` | Name, version and build time of the running build, which shows which version is deployed |
+| `GET /actuator/health` | `{"status":"UP"}` when the app is running, used by the smoke test and the Docker health check |
 
-Tasks are kept in memory, so they reset on restart. That's intentional: the project is about the delivery pipeline, not the app.
+Tasks are held in memory and reset when the app restarts. This is intentional, because the app exists to be delivered by the pipeline.
 
-## Run locally
+## Running it locally
 
-Requires JDK 21. Maven is not needed; the included wrapper (`mvnw`) downloads it.
+Requires JDK 21. Maven does not need to be installed, because the Maven wrapper (`mvnw`) downloads it.
 
 ```bash
 cd app
-./mvnw verify                               # compile + run tests + build the jar
+./mvnw verify                                   # compile, run tests, build the jar
 java -jar target/devops-app-1.0.0-SNAPSHOT.jar
 curl localhost:8080/api/version
 ```
@@ -47,22 +87,16 @@ docker build -t devops-app:local .
 docker run -p 8080:8080 devops-app:local
 ```
 
-## CI pipeline (`.github/workflows/ci.yml`)
+## Fixed names for the Nexus integration
 
-Runs on every push and pull request, on GitHub-hosted runners:
-
-1. **Build & test:** `./mvnw verify` compiles, runs all tests and packages the jar. A failing test stops the pipeline. Test reports and the jar are saved as workflow artifacts.
-2. **Docker image & smoke test:** downloads *the same jar that passed the tests*, builds the image, starts a container, and checks `/actuator/health`, `/api/version` and a real API call.
-
-## Nexus integration (planned)
-
-Publishing to Nexus and deployment run on a self-hosted runner on the machine that hosts Nexus. These names are fixed so the workflows and the Nexus setup match:
+The workflows and the Nexus server are configured independently. These values are shared so the two sides match:
 
 | Item | Value |
 |---|---|
-| Nexus URL | `http://localhost:8081` |
-| Docker registry (Nexus) | `localhost:8082` |
+| Nexus web/API URL | `http://localhost:8081` |
+| Nexus Docker registry | `localhost:8082` |
 | Maven repositories | `maven-releases`, `maven-snapshots` |
 | Docker repository | `docker-hosted` |
 | Image name | `devops-app` |
 | GitHub Secrets | `NEXUS_USER`, `NEXUS_PASSWORD` |
+| Self-hosted runner labels | `self-hosted`, `nexus` |
