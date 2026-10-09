@@ -48,6 +48,17 @@ jobs:
       - name: Nexus memory use
         run: docker stats --no-stream nexus
 
+      - name: Probe repository access with curl
+        run: |
+          R=http://localhost:8081/repository/maven-snapshots/com/devops/probe/1.0-SNAPSHOT/maven-metadata.xml
+          for who in "none" "ci:$NEXUS_PASSWORD" "admin:$NEXUS_ADMIN_PASSWORD"; do
+            if [ "$who" = none ]; then a=(); else a=(-u "$who"); fi
+            echo "== GET as ${who%%:*}"; curl -s -i "${a[@]}" "$R" | head -12; echo
+          done
+          echo "== PUT as ci"
+          curl -s -i -u "ci:$NEXUS_PASSWORD" -X PUT --data 'x' \
+            http://localhost:8081/repository/maven-snapshots/com/devops/probe/1.0-SNAPSHOT/probe.txt | head -12
+
       - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:
