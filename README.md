@@ -45,6 +45,8 @@ Solid arrows are implemented and running on every push. Dotted arrows are the Ne
 ## Repository layout
 
 ```
+.devcontainer/
+  devcontainer.json        GitHub Codespaces environment: JDK 21, Docker, 8 GB machine
 .github/workflows/
   ci.yml                   CI pipeline, runs on GitHub's cloud runners
   nexus-setup-test.yml     Tests infra/nexus + publishing on a throwaway Nexus
