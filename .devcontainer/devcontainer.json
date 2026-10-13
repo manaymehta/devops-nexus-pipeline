@@ -13,7 +13,9 @@
     "ghcr.io/devcontainers/features/java:1": { "version": "21" },
     // A Docker engine inside the codespace, for Nexus, image builds and the deployed app.
     // Its data (images, containers, the nexus-data volume) is kept when the codespace stops.
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    // SSH server, so the codespace can be driven from a local terminal with `gh codespace ssh`.
+    "ghcr.io/devcontainers/features/sshd:1": {}
   },
 
   // Nexus (1.2 GB) + a Maven build + the app need about 3 GB; 8 GB is the 2-core machine.
