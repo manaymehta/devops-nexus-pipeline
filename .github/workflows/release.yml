@@ -1,0 +1,84 @@
+# Release: pushing a tag like v1.2.0 publishes version 1.2.0 to Nexus and deploys it.
+#   1. Build and test with the tag's version, publish the jar to maven-releases.
+#   2. Download that jar back from Nexus, build the Docker image from it, push the image to
+#      the Nexus Docker registry.
+#   3. Deploy the image from Nexus (deploy.yml).
+# Nexus refuses to overwrite an existing release, so re-releasing a version fails at step 1.
+# Runs on the self-hosted runner, because Nexus is only reachable from that machine.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  publish:
+    name: Build, test, publish ${{ github.ref_name }} to Nexus
+    runs-on: [self-hosted, nexus]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      NEXUS_USER: ${{ secrets.NEXUS_USER }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag must look like v1.2.3, got '$GITHUB_REF_NAME'"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Set project version
+        run: ./mvnw -B versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
+
+      # deploy = compile, run all tests, package, upload to maven-releases.
+      # A failing test stops here, so nothing broken reaches Nexus.
+      - name: Build, test and publish jar to Nexus
+        run: ./mvnw -B -s ci-settings.xml deploy
+
+      # The image is built from the jar stored in Nexus, not from the local build output.
+      - name: Download the released jar from Nexus
+        run: |
+          rm -rf target && mkdir target
+          curl -sf -u "$NEXUS_USER:$NEXUS_PASSWORD" -o "target/devops-app-$VERSION.jar" \
+            "http://localhost:8081/repository/maven-releases/com/devops/devops-app/$VERSION/devops-app-$VERSION.jar"
+          ls -l target
+
+      - name: Build image and push it to Nexus
+        run: |
+          echo "$NEXUS_PASSWORD" | docker login localhost:8082 -u "$NEXUS_USER" --password-stdin
+          docker build --build-arg JAR_FILE="target/devops-app-$VERSION.jar" \
+            -t "localhost:8082/devops-app:$VERSION" .
+          docker push "localhost:8082/devops-app:$VERSION"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Released $VERSION to Nexus"
+            echo "- jar: \`maven-releases/com/devops/devops-app/$VERSION/devops-app-$VERSION.jar\`"
+            echo "- image: \`localhost:8082/devops-app:$VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy
+    needs: publish
+    uses: ./.github/workflows/deploy.yml
+    with:
+      version: ${{ needs.publish.outputs.version }}
+    secrets: inherit

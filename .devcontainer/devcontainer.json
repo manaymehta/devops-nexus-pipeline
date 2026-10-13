@@ -24,6 +24,10 @@
     "memory": "8gb"
   },
 
+  // Restart the self-hosted runner whenever the codespace starts. (Nexus restarts by itself:
+  // its container has restart: unless-stopped.)
+  "postStartCommand": "bash .devcontainer/start-runner.sh",
+
   "forwardPorts": [8080, 8081],
   "portsAttributes": {
     "8080": { "label": "App (deployed container)" },

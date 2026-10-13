@@ -1,0 +1,74 @@
+# Deploy / rollback: runs one version that is already stored in Nexus, without building anything.
+#   - Run it by hand (Actions -> Deploy -> Run workflow) with any released version, e.g. to roll back.
+#   - The release workflow calls it after publishing a new version.
+# Runs on the self-hosted runner, because Nexus and the deployed container live on that machine.
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Released version stored in Nexus, e.g. 1.0.0'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+# One deployment at a time; a second one waits instead of racing for port 8080.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.version }} from Nexus
+    runs-on: [self-hosted, nexus]
+    env:
+      VERSION: ${{ inputs.version }}
+      IMAGE: localhost:8082/devops-app:${{ inputs.version }}
+      NEXUS_USER: ${{ secrets.NEXUS_USER }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check version format
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.2.3, got '$VERSION'"
+            exit 1
+          fi
+
+      # The local copy is removed first, so the image really comes from Nexus.
+      # (Removal is skipped while a running container still uses it.)
+      - name: Pull image from Nexus
+        run: |
+          echo "$NEXUS_PASSWORD" | docker login localhost:8082 -u "$NEXUS_USER" --password-stdin
+          docker rmi "$IMAGE" 2> /dev/null || true
+          docker pull "$IMAGE"
+
+      - name: Replace the running container
+        run: |
+          echo "Currently running: $(docker inspect -f '{{.Config.Image}}' devops-app 2> /dev/null || echo none)"
+          docker rm -f devops-app 2> /dev/null || true
+          docker run -d --name devops-app -p 8080:8080 --restart unless-stopped "$IMAGE"
+
+      - name: Health and version check
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"' && break
+            sleep 2
+          done
+          curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'
+          curl -sf http://localhost:8080/api/version | tee version.json
+          echo
+          grep -q "\"version\":\"$VERSION\"" version.json
+          echo "### Deployed $VERSION from Nexus" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$IMAGE\` is running on port 8080." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker logs devops-app 2>&1 | tail -50
