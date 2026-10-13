@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Starts the self-hosted GitHub Actions runner in the background each time the codespace starts
-# (run by postStartCommand in devcontainer.json). Does nothing until the runner has been
+# Starts the self-hosted GitHub Actions runner in the background. Run at every container start
+# by the runner-autostart feature, and safe to run by hand. Does nothing until the runner has been
 # registered in /workspaces/actions-runner (docs/SETUP.md), or while it is already running.
 # /workspaces survives codespace stops and rebuilds, so the registration is kept.
 RUNNER_DIR=/workspaces/actions-runner

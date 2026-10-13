@@ -15,7 +15,10 @@
     // Its data (images, containers, the nexus-data volume) is kept when the codespace stops.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     // SSH server, so the codespace can be driven from a local terminal with `gh codespace ssh`.
-    "ghcr.io/devcontainers/features/sshd:1": {}
+    "ghcr.io/devcontainers/features/sshd:1": {},
+    // Starts the self-hosted runner (once registered) every time the codespace starts.
+    // Nexus restarts by itself: its container has restart: unless-stopped.
+    "./runner-autostart": {}
   },
 
   // Nexus (1.2 GB) + a Maven build + the app need about 3 GB; 8 GB is the 2-core machine.
@@ -23,10 +26,6 @@
     "cpus": 2,
     "memory": "8gb"
   },
-
-  // Restart the self-hosted runner whenever the codespace starts. (Nexus restarts by itself:
-  // its container has restart: unless-stopped.)
-  "postStartCommand": "bash .devcontainer/start-runner.sh",
 
   "forwardPorts": [8080, 8081],
   "portsAttributes": {

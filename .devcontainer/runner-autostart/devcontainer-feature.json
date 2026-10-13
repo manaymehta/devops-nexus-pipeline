@@ -1,0 +1,7 @@
+{
+  "id": "runner-autostart",
+  "version": "1.0.0",
+  "name": "Self-hosted runner auto-start",
+  "description": "Starts the registered GitHub Actions runner each time the container starts.",
+  "entrypoint": "/usr/local/share/runner-autostart.sh"
+}
