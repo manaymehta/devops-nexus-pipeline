@@ -4,10 +4,13 @@
 {
   "name": "devops-nexus-pipeline",
 
-  // Debian 12 with JDK 21 preinstalled, matching the app's Java version.
-  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  // Plain Debian 12. (The devcontainers "java" image carries a Yarn apt source whose
+  // signing key no longer verifies, which makes the Docker feature's apt-get update fail.)
+  "image": "mcr.microsoft.com/devcontainers/base:1-bookworm",
 
   "features": {
+    // JDK 21, matching the app's Java version.
+    "ghcr.io/devcontainers/features/java:1": { "version": "21" },
     // A Docker engine inside the codespace, for Nexus, image builds and the deployed app.
     // Its data (images, containers, the nexus-data volume) is kept when the codespace stops.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
