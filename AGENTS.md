@@ -1,45 +1,43 @@
 # Agent context: devops-nexus-pipeline
 
-This repository is a college DevOps lab project: a CI/CD pipeline for a small Spring Boot REST API, with Sonatype Nexus Repository as the artifact store. It is partially complete and is being continued by a second person, possibly on a different machine from the one it was started on.
+This repository is a college DevOps lab project: a CI/CD pipeline for a small Spring Boot REST API, with Sonatype Nexus Repository as the artifact store. The pipeline is complete and verified; the remaining work is the demo rehearsal, screenshots and the submission report.
 
-**Read `docs/HANDOFF.md` in full before answering questions about the project's status or remaining work, and before making changes.** Read `docs/SETUP.md` before helping set up the machine that hosts Nexus, and `docs/ARCHITECTURE.md` when explaining how the system works.
+**Read `docs/HANDOFF.md` in full before answering questions about the project's status or remaining work, and before making changes.** Read `docs/SETUP.md` before operating the host (a GitHub Codespace), and `docs/ARCHITECTURE.md` when explaining how the system works.
 
 ## Where the state of the project is recorded
 
 - **`docs/HANDOFF.md`** is the authoritative description of the project's state. It covers:
-  - what is implemented and verified
+  - what is implemented and verified, with run IDs
+  - what Nexus currently stores, and which versions are already taken
+  - technical facts about the codebase, Nexus and the codespace host
   - the fixed names and settings shared between the workflows and the Nexus server
-  - requirements for the machine that hosts Nexus
-  - who owns each remaining item
-  - the ordered list of remaining work, each item with a "done when" condition
-  - the target demo scenario and open questions
-- **`docs/SETUP.md`** is the step-by-step procedure for the Nexus host machine: installing Docker, starting and configuring Nexus, GitHub secrets, and the self-hosted runner. Each step has commands per OS, the expected result and known failures.
-- **`docs/ARCHITECTURE.md`** explains how the system works, with diagrams. Each section is marked Implemented or Planned.
+  - the demo scenario and the remaining work
+- **`docs/SETUP.md`** covers how the codespace host was set up and how it is operated day to day, through `gh codespace ssh` and `gh codespace ports forward`.
+- **`docs/ARCHITECTURE.md`** explains how the system works, with diagrams.
 - **`README.md`** is the public overview and maps the assignment's requirements to where each is met.
 
 ## Situation in brief
 
-- **Implemented and passing:**
-  - app and 13 tests in `app/`
-  - `app/Dockerfile`
-  - the CI workflow `.github/workflows/ci.yml`
-  - Nexus setup files in `infra/nexus/`
-  - Maven publishing configuration (`app/pom.xml`, `app/ci-settings.xml`)
-  - `.github/workflows/nexus-setup-test.yml`, which verifies the Nexus setup and the whole publish/push/pull path on a throwaway Nexus in CI
-- **Not yet in place:**
-  - Nexus running on the host machine
-  - the GitHub secrets
-  - the self-hosted runner (labels `self-hosted`, `nexus`)
-  - release, deploy and rollback workflows
-  - the submission report
-- **Two machines:** the person continuing the work is expected to host Nexus, the self-hosted runner and the deployed container. The original laptop has too little RAM for Nexus.
-- **Matching values:** the names in section 4 of `docs/HANDOFF.md` (ports, repository names, secret names, runner labels, image name) are relied on by both sides and are expected to stay as listed, unless every place that uses them is changed together.
+- **Workflows:**
+  - `ci.yml`: GitHub-hosted runners
+  - `release.yml`: on tag `v*.*.*`
+  - `deploy.yml`: manual or called by release, used for rollback
+  - `nexus-setup-test.yml`
+- **Host:** the GitHub Codespace `devops-nexus-host-7v7xjqv9j6762x445` runs:
+  - Nexus, in Docker
+  - the self-hosted runner `codespace-nexus` (labels `self-hosted`, `nexus`)
+  - the deployed `devops-app` container on port 8080
+
+  It stops after 30 idle minutes. Nexus and the runner restart by themselves when it starts again.
+- **Released versions:** 1.0.0 and 1.1.0 exist in Nexus. Release versions cannot be published twice, so the next release is 1.2.0 or higher.
+- **Matching values:** the names in section 4 of `docs/HANDOFF.md` (ports, repository names, secret names, runner labels, image name) are relied on by the workflows and Nexus. They are expected to stay as listed, unless every place that uses them is changed together.
 
 ## Codebase facts that commonly trip up changes
 
 - Spring Boot 4.1.1 on Java 21. Test annotations live in `org.springframework.boot.webmvc.test.autoconfigure`, not the Spring Boot 3 packages.
-- Builds go through the Maven wrapper (`app/mvnw`), which is stored in git as executable (mode 100755).
+- Builds go through the Maven wrapper (`app/mvnw`), which is stored in git as executable (mode 100755), like the other shell scripts.
 - The Dockerfile packages a prebuilt jar passed as build argument `JAR_FILE`. It never compiles source, by design.
-- Nexus 3.96.4 is Community Edition. It returns HTTP 403 for every repository request, even for admin, until its EULA is accepted. `setup-nexus.sh` accepts it only when `NEXUS_ACCEPT_EULA=yes` is set in `infra/nexus/.env`.
-- `.sh` files must keep LF line endings (enforced by `.gitattributes`). On Windows they run in Git Bash.
-- Statements in the docs marked as not verified (Windows runner details, GitHub access rules for personal repositories) come from documentation or general knowledge and have not been tested in this project.
+- Nexus 3.96.4 is Community Edition. It returns HTTP 403 for every repository request until its EULA is accepted. On the host it is accepted.
+- `.sh` files must keep LF line endings (enforced by `.gitattributes`).
+- The codespace's repository clone at `/workspaces/devops-nexus-pipeline` does not update itself. Changes under `.devcontainer/` need a `git pull` there, then `gh codespace rebuild`.
+- Commits carry no AI attribution or co-author trailers.

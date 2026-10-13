@@ -8,18 +8,20 @@ The application itself is deliberately small (a to-do list REST API). The subjec
 
 ```mermaid
 flowchart LR
-    dev["Developer<br/>git push"] --> gh["GitHub<br/>repository"]
-    gh --> ci["GitHub Actions<br/>CI workflow"]
-    ci --> build["Build + test<br/>Maven, JUnit"]
-    build --> jar["devops-app.jar<br/>the artifact"]
-    jar --> img["Docker image"]
-    img --> smoke["Smoke test<br/>container answers?"]
-    jar -. planned .-> nexus[("Nexus<br/>Repository")]
-    img -. planned .-> nexus
-    nexus -. planned .-> deploy["Deployed<br/>container"]
+    dev["Developer<br/>git push / git tag"] --> gh["GitHub<br/>repository"]
+    gh -- "every push" --> ci["CI workflow<br/>GitHub cloud"]
+    ci --> smoke["Build, 13 tests,<br/>Docker smoke test"]
+    gh -- "tag v1.2.0" --> rel["Release workflow<br/>self-hosted runner"]
+    rel --> jar["Build + test<br/>devops-app-1.2.0.jar"]
+    jar --> nexus[("Nexus<br/>Repository")]
+    nexus -- "jar downloaded back" --> img["Docker image<br/>pushed to Nexus"]
+    img --> nexus
+    nexus -- "image pulled" --> deploy["Deployed<br/>container :8080"]
+    gh -- "manual: version 1.0.0" --> dep["Deploy workflow<br/>rollback, no rebuild"]
+    dep --> nexus
 ```
 
-Solid arrows are implemented and running on every push. Dotted arrows are the Nexus stages that are designed but not built yet.
+Everything shown is implemented and verified. Nexus, the self-hosted runner and the deployed app run on a GitHub Codespace (see [`docs/SETUP.md`](docs/SETUP.md)).
 
 ## Assignment requirements and where each one is met
 
@@ -29,26 +31,38 @@ Solid arrows are implemented and running on every push. Dotted arrows are the Ne
 | Application build | `app/` with Maven (`./mvnw verify`) | Done |
 | Automated testing | 13 JUnit tests in `app/src/test` | Done |
 | Containerization (Docker) | `app/Dockerfile` | Done |
-| CI/CD pipeline | `.github/workflows/ci.yml` (GitHub Actions) | CI done, release/deploy planned |
-| Artifact management (Nexus) | `infra/nexus/` setup + Maven publishing config, verified in CI by `nexus-setup-test.yml` | Setup done, host machine pending |
-| Deployment | Container deployed from an image stored in Nexus | Planned |
-| Documentation + demo | `README.md`, `docs/` | In progress |
+| CI/CD pipeline | GitHub Actions: `ci.yml`, `release.yml`, `deploy.yml` | Done |
+| Artifact management (Nexus) | `infra/nexus/`; jars in `maven-releases`, images in `docker-hosted` | Done |
+| Deployment | `deploy.yml`: container deployed from the image stored in Nexus, any version (rollback) | Done |
+| Documentation + demo | `README.md`, `docs/`; demo plan in `docs/HANDOFF.md` section 5 | Docs done, report pending |
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the project works: concepts, components, and diagrams of every flow |
-| [`docs/SETUP.md`](docs/SETUP.md) | Step-by-step setup of the machine that hosts Nexus, the runner and the deployed app |
-| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Current state, fixed names and settings, environment facts, and remaining work, for anyone (or any AI assistant) continuing the project |
+| [`docs/SETUP.md`](docs/SETUP.md) | Setup and daily operation of the host (a GitHub Codespace) that runs Nexus, the runner and the deployed app |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Current state, verified runs, fixed names and settings, demo scenario, and remaining work |
+
+## Releasing and rolling back
+
+```bash
+git tag v1.2.0 && git push origin v1.2.0     # build, test, publish to Nexus, deploy 1.2.0
+```
+
+Rollback: GitHub → Actions → **Deploy** → Run workflow → version `1.1.0`. The image stored in Nexus is pulled and started; nothing is rebuilt.
 
 ## Repository layout
 
 ```
 .devcontainer/
-  devcontainer.json        GitHub Codespaces environment: JDK 21, Docker, 8 GB machine
+  devcontainer.json        Codespace host: JDK 21, Docker, SSH, 8 GB machine
+  start-runner.sh          Starts the self-hosted runner (run at every codespace start)
+  runner-autostart/        Local dev container feature that hooks start-runner.sh into startup
 .github/workflows/
   ci.yml                   CI pipeline, runs on GitHub's cloud runners
+  release.yml              Tag v*.*.* -> build, test, publish jar + image to Nexus, deploy
+  deploy.yml               Deploy any version stored in Nexus (also used for rollback)
   nexus-setup-test.yml     Tests infra/nexus + publishing on a throwaway Nexus
 app/                       Spring Boot application (Java 21, Maven)
   pom.xml                  Build definition: name, version, dependencies, Nexus URLs
@@ -97,7 +111,7 @@ docker run -p 8080:8080 devops-app:local
 
 ## Fixed names for the Nexus integration
 
-The workflows and the Nexus server are configured independently. These values are shared so the two sides match:
+The workflows and the Nexus server are configured separately. These values are shared so the two sides match:
 
 | Item | Value |
 |---|---|

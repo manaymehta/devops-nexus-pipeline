@@ -32,7 +32,7 @@ Each section is marked **Implemented** (exists and runs) or **Planned** (designe
 
 ## 2. System overview
 
-Three locations are involved: GitHub's cloud, the developer's laptop, and the machine that hosts Nexus.
+Three locations are involved: the developer's laptop, GitHub's cloud, and the host that runs Nexus. The host is a GitHub Codespace, a Linux machine in GitHub's cloud (section 11).
 
 ```mermaid
 flowchart TB
@@ -45,7 +45,7 @@ flowchart TB
         hosted["GitHub-hosted runners<br/>CI workflow"]
     end
 
-    subgraph host["Nexus host machine - planned"]
+    subgraph host["Host: GitHub Codespace"]
         runner["Self-hosted runner<br/>labels: self-hosted, nexus"]
         nexus[("Nexus Repository<br/>:8081 web/API<br/>:8082 Docker registry")]
         app["Deployed container<br/>devops-app on :8080"]
@@ -59,7 +59,7 @@ flowchart TB
     runner -- "docker run" --> app
 ```
 
-**Why two kinds of runner:** GitHub-hosted runners live on the internet and cannot reach a Nexus server running on a private machine (`localhost:8081` there means the cloud machine itself). Steps that need Nexus therefore run on a self-hosted runner installed on the same machine as Nexus. Steps that do not need Nexus (build, test, Docker smoke test) run in GitHub's cloud and use no local resources.
+**Why two kinds of runner:** GitHub-hosted runners are separate temporary machines and cannot reach a Nexus server on another machine (`localhost:8081` there means the runner itself). Steps that need Nexus therefore run on a self-hosted runner installed on the same machine as Nexus. Steps that do not need Nexus (build, test, Docker smoke test) run on GitHub-hosted runners.
 
 ---
 
@@ -164,9 +164,9 @@ The jar and test reports remain downloadable from the run's page on GitHub (the 
 
 ---
 
-## 7. Release workflow - Planned
+## 7. Release workflow - Implemented
 
-Trigger: pushing a git tag such as `v1.1.0`. Runs on the self-hosted runner next to Nexus.
+File: `.github/workflows/release.yml`. Trigger: pushing a git tag such as `v1.1.0`. The version is the tag without `v`. Runs on the self-hosted runner next to Nexus.
 
 ```mermaid
 sequenceDiagram
@@ -175,39 +175,53 @@ sequenceDiagram
     participant R as Self-hosted runner
     participant N as Nexus
 
-    Dev->>GH: git tag v1.1.0, git push --tags
+    Dev->>GH: git tag v1.1.0, git push origin v1.1.0
     GH->>R: start release workflow
     R->>R: set Maven version to 1.1.0
-    R->>R: ./mvnw verify - build and test
-    R->>N: deploy devops-app-1.1.0.jar to maven-releases
-    Note over N: Release versions are immutable.<br/>Publishing 1.1.0 twice is rejected.
-    R->>N: download devops-app-1.1.0.jar
-    R->>R: docker build from the downloaded jar
-    R->>N: docker push localhost:8082/devops-app:1.1.0
-    R->>R: deploy step, see section 8
+    R->>R: ./mvnw deploy - build, 13 tests, package
+    alt a test fails
+        R-->>GH: workflow fails, nothing reaches Nexus
+    else tests pass
+        R->>N: upload devops-app-1.1.0.jar to maven-releases
+        Note over N: Release versions are immutable.<br/>Publishing 1.1.0 again gets HTTP 409.
+        R->>N: download devops-app-1.1.0.jar
+        R->>R: docker build from the downloaded jar
+        R->>N: docker push localhost:8082/devops-app:1.1.0
+        R->>R: deploy 1.1.0, see section 8
+    end
 ```
 
 The jar is downloaded back from Nexus before the image is built. This demonstrates the core idea of artifact management: **build once, store, and deploy the stored artifact**, rather than rebuilding for each deployment.
 
-Pushes to `main` without a tag are intended to publish `1.0.0-SNAPSHOT`-style builds to `maven-snapshots`, which Nexus allows to be overwritten.
+The deploy step is the separate workflow `deploy.yml`, called from `release.yml` as a reusable workflow (`workflow_call`), so release and rollback share one deployment procedure.
+
+Verified runs:
+- `38419484993` released and deployed `1.0.0`.
+- `38419898826` released and deployed `1.1.0`. Its re-run failed with HTTP 409: *"cannot be updated as asset already exists and redeploy is not allowed"*.
+
+Publishing `-SNAPSHOT` builds to `maven-snapshots` on pushes to `main` is designed but not implemented. The setup test shows that it works.
 
 ---
 
-## 8. Deployment and rollback - Planned
+## 8. Deployment and rollback - Implemented
 
-One deployment procedure, used both at the end of a release and on demand (a manual "deploy" workflow with a version number as input):
+File: `.github/workflows/deploy.yml`. One deployment procedure, used both at the end of a release and on demand: Actions → Deploy → Run workflow, with a version number as input.
 
 ```mermaid
 flowchart LR
-    pick["Version selected<br/>e.g. 1.0.0"] --> pull["docker pull<br/>localhost:8082/devops-app:1.0.0"]
+    pick["Version selected<br/>e.g. 1.0.0"] --> pull["docker pull<br/>localhost:8082/devops-app:1.0.0<br/>local copy removed first"]
     pull --> stop["Stop and remove the<br/>running devops-app container"]
     stop --> start["docker run -d -p 8080:8080<br/>devops-app:1.0.0"]
-    start --> check{"Smoke test<br/>/api/version = 1.0.0?"}
+    start --> check{"Health UP and<br/>/api/version = 1.0.0?"}
     check -- "yes" --> ok["Deployment succeeded"]
-    check -- "no" --> fail["Workflow fails"]
+    check -- "no" --> fail["Workflow fails,<br/>container logs printed"]
 ```
 
 **Rollback** is the same procedure with an older version number. Nothing is rebuilt: the old image is fetched from Nexus, so it is byte-for-byte the version that was originally tested and released.
+
+Verified: run `38420296234` deployed `1.0.0` while `1.1.0` was running. Afterwards `/api/version` reported `1.0.0` with its original build time, `15:09:21`, which shows the image was not rebuilt.
+
+A `concurrency` group lets only one deployment run at a time, so two deployments never compete for port 8080.
 
 ### Version lifecycle in Nexus
 
@@ -242,14 +256,49 @@ The workflow `.github/workflows/nexus-setup-test.yml` runs this setup on a throw
 - download the jar from Nexus and build the image from it
 - push the image to the registry, delete it locally, pull it back, run it, and check `/api/version`
 
-The procedure for the real host machine is in [`SETUP.md`](SETUP.md).
+The procedure for the real host is in [`SETUP.md`](SETUP.md).
 
 ---
 
 ## 10. Security and configuration notes
 
-- Nexus credentials are never stored in the repository. Workflows read them from the GitHub Secrets `NEXUS_USER` and `NEXUS_PASSWORD`.
+- Nexus credentials are never stored in the repository. Workflows read them from the GitHub Secrets `NEXUS_USER` and `NEXUS_PASSWORD`, and pass them to Docker with `--password-stdin`.
+- Workflow inputs (the deploy version, the tag name) are checked against the pattern `1.2.3` before use, and only reach shell commands through environment variables.
+- The repository is public and has a self-hosted runner. GitHub warns that a pull request from a fork could change a workflow to run code on that runner. The jobs that use the runner only start from tag pushes and manual runs, which need write access. Requiring approval for workflow runs from all outside contributors (Settings → Actions → General) closes the remaining path.
 - The container runs as a non-root user.
 - Nexus anonymous access is disabled. The pipeline uses a dedicated `ci` user whose role only covers the three repositories it needs.
 - Nexus passwords on the host live in `infra/nexus/.env`, which is git-ignored.
 - The Nexus Docker registry uses plain HTTP on `localhost:8082`. Docker allows unencrypted registries on `localhost` by default. A registry on any other address would need HTTPS or an `insecure-registries` entry in the Docker daemon settings.
+
+---
+
+## 11. The host: a GitHub Codespace - Implemented
+
+The host for Nexus, the runner and the deployed app is a GitHub Codespace: a Linux container on a cloud machine (2 cores, 8 GB), created from this repository. Its contents are defined in code by `.devcontainer/devcontainer.json`:
+- Debian 12
+- JDK 21
+- a Docker engine inside the container (docker-in-docker)
+- an SSH server, so it can be operated from a local terminal with `gh codespace ssh`
+- a small local feature that restarts the runner whenever the codespace starts
+
+```mermaid
+flowchart TB
+    start["Codespace starts<br/>manually or by gh codespace ssh"] --> ep["Container entrypoint"]
+    ep --> dind["Docker engine starts"]
+    ep --> sshd["SSH server starts"]
+    ep --> hook["runner-autostart hook:<br/>start-runner.sh as user vscode"]
+    dind --> nexus["Nexus container restarts<br/>restart: unless-stopped"]
+    dind --> app["devops-app container restarts<br/>--restart unless-stopped"]
+    hook --> runner["Runner online,<br/>listening for jobs"]
+    idle["30 minutes idle"] --> stop["Codespace stops:<br/>all processes stop,<br/>/workspaces and Docker volumes kept"]
+```
+
+**Why a codespace and not the project laptop:** the laptop has 7.4 GB RAM. With Docker Desktop and Nexus running, 0.73 GB stayed free, measured, which is not enough for a Maven build and the app on top. In the codespace, Nexus uses 1.22 GB and about 5.5 GB stays available.
+
+**What persists:**
+- Files under `/workspaces`: the repository, the runner registration, `infra/nexus/.env`.
+- Docker volumes such as `nexus-data`.
+
+Both survived a stop/start and two rebuilds, verified by the Nexus configuration still being present.
+
+**Reaching the app and Nexus from the laptop:** `gh codespace ports forward 8080:8080 8081:8081 -c <name>` makes them available as `http://localhost:8080` and `http://localhost:8081` on the laptop. Codespaces' browser links (`*.app.github.dev`) are the alternative, where the network allows them.

@@ -1,23 +1,32 @@
-# Project Hand-off: Current State and Remaining Work
+# Project State and Remaining Work
 
-This document describes the project's state precisely enough for a person, or an AI assistant acting for them, to continue the work without access to earlier conversations. It records facts, agreed names and settings, and the shape of the remaining work.
+This document describes the project's state precisely enough for a person, or an AI assistant acting for them, to continue the work without access to earlier conversations. It records facts, agreed names and settings, and what is left.
 
 - How the system works: [`ARCHITECTURE.md`](ARCHITECTURE.md).
-- Step-by-step preparation of the Nexus host machine: [`SETUP.md`](SETUP.md).
+- How the host (a GitHub Codespace) is set up and operated: [`SETUP.md`](SETUP.md).
 
-Last updated: 2026-10-09.
+Last updated: 2026-10-13.
 
 ---
 
 ## 1. Project context
 
-- **Purpose:** college DevOps lab assignment. The brief requires version control (Git/GitHub), an application build, automated testing, Docker containerization, a CI/CD pipeline (Jenkins or GitHub Actions), deployment, documentation, and a live demonstration of the working pipeline.
-- **Chosen topic:** *Artifact Management in DevOps Using Nexus Repository*, widened into a full CI/CD pipeline in which Nexus stores every released version and deployments pull from Nexus.
-- **Repository:** https://github.com/manaymehta/devops-nexus-pipeline (public, default branch `main`). Ownership may be transferred to the person continuing the work. GitHub then redirects this URL to the new one.
-- **Work split:**
-  - The project was started on a 7.4 GB RAM laptop, which cannot host Nexus.
-  - The person continuing the work hosts the memory-heavy parts on their machine: the Nexus server, the GitHub Actions self-hosted runner, and the deployed container.
-  - The live demo runs on that machine.
+- **Purpose:** college DevOps lab assignment. The brief requires:
+  - version control (Git/GitHub)
+  - an application build
+  - automated testing
+  - Docker containerization
+  - a CI/CD pipeline (Jenkins or GitHub Actions)
+  - deployment
+  - documentation
+  - a live demonstration of the working pipeline
+- **Chosen topic:** *Artifact Management in DevOps Using Nexus Repository*, widened into a full CI/CD pipeline. Nexus stores every released version, and deployments pull from Nexus.
+- **Repository:** https://github.com/manaymehta/devops-nexus-pipeline (public, default branch `main`). It is owned by `manaymehta`, who does all remaining work.
+- **History:**
+  - A teammate was originally going to host Nexus on their machine. That did not happen.
+  - The repository was transferred to the teammate's account and back.
+  - The host is now a GitHub Codespace on `manaymehta`'s account.
+- **Commit history:** AI co-author trailers were removed from all early commits by a history rewrite (force-push on 2026-10-13). Commits are authored by the repository owner only.
 
 ---
 
@@ -25,238 +34,145 @@ Last updated: 2026-10-09.
 
 | Item | State | Evidence |
 |---|---|---|
-| Spring Boot app in `app/` | Complete | Builds with `./mvnw verify` and serves all endpoints when run with `java -jar` |
-| Tests | 13 tests, all passing | Local build and every CI run |
-| `app/Dockerfile` | Complete | Image built and smoke-tested in CI |
-| `.github/workflows/ci.yml` | Complete, green | Build + test, then Docker image + smoke test, on GitHub-hosted runners |
-| Nexus setup files `infra/nexus/` | Complete, verified | `docker-compose.yml` + `setup-nexus.sh` + `.env.example`. Verified by run `37945141137` of `nexus-setup-test.yml` |
-| Maven publishing configuration | Complete, verified | `distributionManagement` in `app/pom.xml` + `app/ci-settings.xml`. Same run |
-| `.github/workflows/nexus-setup-test.yml` | Complete, green | Runs a throwaway Nexus in CI and exercises the whole publish/push/pull path |
-| Documentation | `README.md`, `docs/ARCHITECTURE.md`, `docs/SETUP.md`, this file, `AGENTS.md` | - |
-| Nexus running on the host machine | Not done | Procedure: `SETUP.md` steps 1–5 |
-| GitHub secrets `NEXUS_USER`, `NEXUS_PASSWORD` | Not set | Procedure: `SETUP.md` step 6 |
-| Self-hosted runner | Not installed | Procedure: `SETUP.md` step 7 |
-| Release, deploy and rollback workflows | Not written | Sections 6.4 and 6.5 |
-| Project report and screenshots | Not started | Section 6.7 |
+| Spring Boot app in `app/` | Complete | Builds with `./mvnw verify`, serves all endpoints |
+| Tests | 13, all passing | Every CI and release run |
+| `app/Dockerfile` | Complete | Built and smoke-tested in CI and in releases |
+| `ci.yml` | Complete, green | Build + test, then Docker image + smoke test, on GitHub-hosted runners |
+| `nexus-setup-test.yml` | Complete, green | Throwaway Nexus in CI: setup, publish, duplicate rejection, image push/pull. Run `37945141137`. |
+| Host: GitHub Codespace | Running | `.devcontainer/` (JDK 21, Docker, sshd, runner auto-start). See `SETUP.md` |
+| Nexus on the host | Configured | `setup-nexus.sh` run; status 200; `docker login localhost:8082 -u ci` succeeds; anonymous requests get 401 |
+| GitHub secrets `NEXUS_USER`, `NEXUS_PASSWORD` | Set | `gh secret list` |
+| Self-hosted runner `codespace-nexus` | Registered, online when the codespace runs | Labels `self-hosted, X64, nexus, Linux`; restarts by itself on codespace start |
+| `release.yml` | Complete, verified | Run `38419484993` (1.0.0), run `38419898826` (1.1.0) |
+| `deploy.yml` | Complete, verified | Run `38420296234`: rollback from 1.1.0 to 1.0.0 |
+| Duplicate release rejected | Verified | Re-run of `38419898826`: HTTP 409 from Nexus |
+| Jar from Nexus runs outside Docker | Verified | 1.1.0 jar downloaded with `curl -u`, run with `java -jar` |
+| App and Nexus reachable from the laptop | Verified | `gh codespace ports forward 8080:8080 8081:8081` |
+| Documentation | Updated for the codespace host | `README.md`, `docs/`, `AGENTS.md` |
+| Project report and screenshots | Not started | Section 6 |
 
-### What run `37945141137` proved
+### Current contents of Nexus
 
-On a fresh `ubuntu-latest` runner:
-1. Nexus 3.96.4 (Community Edition) started from `docker-compose.yml`, using **1.196 GiB** of memory with the 1 GB heap.
-2. `setup-nexus.sh` configured it, and a second run reported every item as already done.
-3. User `ci` published a SNAPSHOT jar to `maven-snapshots` and release `0.0.1-test` to `maven-releases`.
-4. Publishing `0.0.1-test` a second time was rejected.
-5. The release jar was downloaded from Nexus, an image was built from it and pushed to `localhost:8082/devops-app:0.0.1-test`.
-6. The local image was deleted, pulled back from Nexus and run. `/api/version` returned `"version":"0.0.1-test"`.
+| Repository | Contents |
+|---|---|
+| `maven-releases` | `devops-app` 1.0.0 and 1.1.0 |
+| `docker-hosted` | `devops-app:1.0.0` and `devops-app:1.1.0` |
+| `maven-snapshots` | empty |
+
+Deployed at last check: **1.0.0** (after the rollback test).
+
+**The next release version is `1.2.0` or higher.** 1.0.0 and 1.1.0 exist and cannot be released again.
 
 ---
 
 ## 3. Technical facts
 
 ### Codebase
-- **Stack:** Java 21, Spring Boot **4.1.1**, Maven **3.9.16** through the Maven wrapper 3.3.4. Generated from start.spring.io with dependencies `webmvc`, `actuator` and `validation`.
-- **Coordinates:** groupId `com.devops`, artifactId `devops-app`, current version `1.0.0-SNAPSHOT`.
-  - Built jar: `app/target/devops-app-<version>.jar`.
-  - Release jar path inside Nexus: `com/devops/devops-app/<v>/devops-app-<v>.jar`.
-- **Spring Boot 4 test packages** differ from Spring Boot 3:
-  - `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest`
-  - `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`
-- **Version reporting:** `spring-boot-maven-plugin` runs the `build-info` goal, which writes `META-INF/build-info.properties`. `GET /api/version` returns `"unknown"` only when the app runs without a Maven build.
-- **Test isolation:** API tests share one Spring context, so task IDs are not predictable between tests. The tests read IDs from the `Location` header.
+- **Stack:** Java 21, Spring Boot **4.1.1**, Maven **3.9.16** through the Maven wrapper 3.3.4.
+- **Coordinates:** groupId `com.devops`, artifactId `devops-app`, version `1.0.0-SNAPSHOT` in `pom.xml`. Releases set the version from the tag, in the runner's checkout only; the change is never committed.
+- **Spring Boot 4 test packages:** `org.springframework.boot.webmvc.test.autoconfigure.{WebMvcTest, AutoConfigureMockMvc}`.
+- **Version reporting:** the `build-info` goal writes `META-INF/build-info.properties`. `GET /api/version` returns name, version and build time.
 - **Publishing:**
-  - `./mvnw -s ci-settings.xml deploy` publishes to Nexus. `ci-settings.xml` reads credentials from the environment variables `NEXUS_USER` and `NEXUS_PASSWORD`.
-  - The Nexus base URL is the Maven property `nexus.url`, default `http://localhost:8081`.
-  - Setting a release version: `./mvnw versions:set -DnewVersion=<v> -DgenerateBackupPoms=false`.
+  - `./mvnw -s ci-settings.xml deploy`, with credentials from the env vars `NEXUS_USER` and `NEXUS_PASSWORD`.
+  - The Nexus URL is the Maven property `nexus.url`, default `http://localhost:8081`.
 - **Dockerfile:**
-  - Base image `eclipse-temurin:21-jre-alpine`.
-  - Runs as non-root user `app`, with a `HEALTHCHECK` on `/actuator/health`.
-  - Takes the jar via build argument `JAR_FILE` (default `target/*.jar`) and never compiles source.
-  - `.dockerignore` only admits `target/*.jar`, so a jar to be packaged must sit directly in `app/target/`.
+  - Base image `eclipse-temurin:21-jre-alpine`, non-root user, `HEALTHCHECK`.
+  - Takes a prebuilt jar via build arg `JAR_FILE` and never compiles.
+  - `.dockerignore` admits only `target/*.jar`.
 
 ### Repository and Git
-- `app/mvnw` and `infra/nexus/setup-nexus.sh` are stored with mode `100755` (executable). A file recreated on Windows needs `git add --chmod=+x <file>`.
-- **Line endings:**
-  - The root `.gitattributes` keeps `*.sh` files LF. Bash fails on CRLF scripts.
-  - `app/.gitattributes` keeps `mvnw` LF and `*.cmd` CRLF.
-- **GitHub Action versions in use:** `actions/checkout@v7`, `actions/setup-java@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`.
-- **Token scope:** pushing files under `.github/workflows/` with an OAuth token (e.g. `gh` CLI login) requires the `workflow` scope (`gh auth refresh -s workflow`).
+- `app/mvnw`, `infra/nexus/setup-nexus.sh`, `.devcontainer/start-runner.sh` and `.devcontainer/runner-autostart/install.sh` are stored as mode `100755`.
+- `.gitattributes` keeps `*.sh` LF.
+- Actions in use: `actions/checkout@v7`, `actions/setup-java@v6`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`.
+- **`gh` token scopes needed:** `workflow` to push workflow files, `codespace` to manage codespaces.
 
-### Nexus (verified in CI)
-- **Version:** `sonatype/nexus3:3.96.4` is **Nexus Repository Community Edition**.
-- **EULA:** it answers every repository request with HTTP 403, *even for admin*, until its EULA is accepted, through the UI wizard or `POST /service/rest/v1/system/eula`. `setup-nexus.sh` accepts it only when `NEXUS_ACCEPT_EULA=yes`.
-- **Memory:**
-  - The heap is set with `INSTALL4J_ADD_VM_PARAMS`.
-  - The image default is 2703 MB. This project uses 1 GB (`-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g`).
-  - The `-Djava.util.prefs.userRoot=/nexus-data/javaprefs` part of the image default is kept.
-- **Anonymous access** is disabled on a fresh install, and the script keeps it disabled.
-- **Docker login** requires the "DockerToken" realm, which the script activates.
-- **CI role:** `ci-deployer` holds `nx-repository-view-maven2-maven-releases-*`, `nx-repository-view-maven2-maven-snapshots-*` and `nx-repository-view-docker-docker-hosted-*`.
+### Nexus
+- `sonatype/nexus3:3.96.4`, Community Edition.
+- **EULA:** it answers every repository request with 403 until the EULA is accepted. On the host it was accepted by `setup-nexus.sh` with `NEXUS_ACCEPT_EULA=yes`.
+- **Memory:** 1 GB heap. Measured at 1.18–1.22 GiB.
+- **Security:**
+  - Anonymous access is disabled.
+  - The DockerToken realm is active.
+  - Role `ci-deployer` has view privileges on `maven-releases`, `maven-snapshots` and `docker-hosted`.
 - **Write policies:**
-  - `maven-releases`: does not allow redeploying an existing version.
-  - `docker-hosted`: created with write policy `allow`, so image tags can be overwritten.
+  - `maven-releases` rejects redeploys with HTTP 409.
+  - `docker-hosted` allows tag overwrite.
 
-### Owner's environment
-- On the original laptop the project folder sits inside an unrelated pnpm workspace (`D:\MANAY\MANAY\Code\Projects`).
-- The project is intentionally not registered with that workspace: not in its `.gitignore`, `pnpm-workspace.yaml` or catalog tooling.
+### Codespace host
+- **Name:** `devops-nexus-host-7v7xjqv9j6762x445`. Machine `basicLinux32gb` (2 cores, 8 GB, 32 GB disk), idle timeout 30 minutes.
+- **Billing:** usage is billed to `manaymehta`'s free Codespaces allowance (120 core-hours and 15 GB-month per month on GitHub Free). The 2-core machine uses 2 core-hours per hour. Without a payment method, usage beyond the allowance is blocked, not charged.
+- **Where things live:**
+  - Repository at `/workspaces/devops-nexus-pipeline`, a git clone that needs `git pull` to pick up new commits.
+  - Runner at `/workspaces/actions-runner`, version 2.338.0, log at `runner.log`.
+  - Passwords in `/workspaces/devops-nexus-pipeline/infra/nexus/.env`: two random 24-character passwords, file mode 600.
+- **Restarts:** after a codespace start, the Docker engine and Nexus take a few minutes. The runner restarts through the entrypoint hook.
+- **Known build facts:**
+  - The `devcontainers/java` image failed the docker-in-docker feature: its Yarn apt source has a signing key (`62D54FD4003F6525`) that no longer verifies.
+  - A process left running by `postStartCommand` is stopped when that command ends. Processes started from the container entrypoint survive.
+- **VS Code connection:** VS Code, both browser and desktop, did not finish connecting from the project laptop. The connection attempts reached the codespace's VS Code server, and the cause was not found. All work is done with `gh codespace ssh` and `gh codespace ports forward` instead.
 
 ---
 
 ## 4. Fixed names and settings
 
-The workflows, the Maven configuration and the Nexus setup script all rely on these values. Changing one means changing every place that uses it.
+Changing one of these means changing every place that uses it.
 
 | Item | Value | Defined in |
 |---|---|---|
-| Nexus web UI and REST API | `http://localhost:8081` (from the host machine) | `docker-compose.yml`, `pom.xml` (`nexus.url`) |
+| Nexus web UI and REST API | `http://localhost:8081` (on the host) | `docker-compose.yml`, `pom.xml` (`nexus.url`) |
 | Nexus Docker registry | `localhost:8082` | `docker-compose.yml`, `setup-nexus.sh` |
-| Maven release repository | `maven-releases`, `http://localhost:8081/repository/maven-releases/` | Nexus default, `pom.xml` |
-| Maven snapshot repository | `maven-snapshots`, `http://localhost:8081/repository/maven-snapshots/` | Nexus default, `pom.xml` |
+| Maven repositories | `maven-releases`, `maven-snapshots` | Nexus defaults, `pom.xml` |
 | Docker hosted repository | `docker-hosted` | `setup-nexus.sh` |
-| Image name | `localhost:8082/devops-app:<version>` | workflows |
+| Image name | `localhost:8082/devops-app:<version>` | `release.yml`, `deploy.yml` |
 | Maven `<server>` ids | `nexus-releases`, `nexus-snapshots` | `pom.xml`, `ci-settings.xml` |
 | Nexus CI user / role | `ci` / `ci-deployer` | `setup-nexus.sh` |
 | GitHub Actions secrets | `NEXUS_USER` (= `ci`), `NEXUS_PASSWORD` (= `NEXUS_CI_PASSWORD`) | repository settings |
-| Self-hosted runner labels | `self-hosted`, `nexus`. Jobs use `runs-on: [self-hosted, nexus]`. | runner config |
-| Deployed container | name `devops-app`, port `8080` | workflows |
-| Version tags | `vX.Y.Z` (e.g. `v1.0.0`). The Maven/image version is the tag without `v`. | workflows |
+| Self-hosted runner | name `codespace-nexus`, labels `self-hosted`, `nexus`; jobs use `runs-on: [self-hosted, nexus]` | runner config |
+| Deployed container | name `devops-app`, port `8080`, `--restart unless-stopped` | `deploy.yml` |
+| Version tags | `vX.Y.Z`; the Maven/image version is the tag without `v` | `release.yml` |
 
 ---
 
-## 5. Host machine requirements
+## 5. Demo scenario
 
-The full list, with per-OS commands, is in [`SETUP.md`](SETUP.md). In short:
-- **Software:** Docker with Compose, Git (Git Bash on Windows), and optionally the GitHub CLI.
-- **Ports:** 8081, 8082 and 8080 free.
-- **Memory:** about 3 GB free while running (Nexus measured at 1.2 GB).
-- **Network:** outbound internet only. GitHub-hosted runners cannot reach the host's `localhost`, so every job that talks to Nexus runs on the self-hosted runner.
+**Before the demo:**
+1. Start the codespace: `gh codespace ssh -c devops-nexus-host-7v7xjqv9j6762x445 -- true`.
+2. Wait until the runner is online and Nexus answers, a few minutes after start.
+3. Start `gh codespace ports forward 8080:8080 8081:8081 -c devops-nexus-host-7v7xjqv9j6762x445` in a separate terminal and leave it running.
+4. Optionally, make the deployed version the one to start from (Actions → Deploy → `1.1.0`).
+5. Keep the codespace active during the demo: it stops after 30 minutes without terminal activity, and a running job does not count as activity.
+
+**Steps** (versions below assume 1.0.0 and 1.1.0 already exist):
+1. `http://localhost:8080/api/version` shows the running version, e.g. `1.1.0`.
+2. A code change is pushed and tagged `v1.2.0`. The release workflow runs live, and `1.2.0` appears in Nexus (`http://localhost:8081`, Browse) and is deployed.
+3. A deliberately broken test is pushed. CI turns red. A release tagged on it would fail at the test stage, so nothing reaches Nexus.
+4. The `v1.2.0` release is re-run. Nexus rejects the duplicate with HTTP 409.
+5. Actions → Deploy → Run workflow with `1.1.0`. The old image is pulled from Nexus and running again with its original build time, with no rebuild.
+6. A specific jar is downloaded from Nexus with `curl -u` and run with `java -jar`, which shows the artifact is reusable outside Docker.
 
 ---
 
 ## 6. Remaining work
 
-Items are ordered by dependency. Each one lists its owner and its "done when" condition.
+| Item | Notes |
+|---|---|
+| Require approval for outside contributors' workflow runs | Settings → Actions → General → "Approval for running fork pull request workflows from contributors" → *Require approval for all external contributors*. Protects the self-hosted runner on this public repository (`ARCHITECTURE.md` section 10). |
+| Demo rehearsal and screenshots | Screenshots: a green CI run; a red CI run from a failing test; the Nexus browse view with several versions; `docker-hosted` contents; `/api/version` before and after a rollback; the rejected re-release (HTTP 409). |
+| Report | Introduction; architecture (diagrams in `ARCHITECTURE.md`); tools and why each was chosen; each pipeline stage; Nexus concepts; challenges (see below); conclusion. |
+| Optional: snapshot publishing | A job on `[self-hosted, nexus]` for pushes to `main` running `./mvnw -s ci-settings.xml deploy`. Only succeeds while the codespace runs. |
+| Optional extras, not accepted or rejected | JaCoCo coverage report; Nexus cleanup policies for old snapshots |
 
-Roles:
-- **Repository owner:** the GitHub account that owns the repository. Currently `manaymehta`; after a transfer, the new owner.
-- **Host operator:** the person whose machine runs Nexus, the runner and the deployed app. If the host operator also owns the repository, every step below can be done by one person.
-
-### Who does what
-
-| Order | Item | Owner | Depends on |
-|---|---|---|---|
-| 1 | Nexus installed, started and configured (`SETUP.md` 1–5) | Host operator | - |
-| 2 | Secrets `NEXUS_USER`, `NEXUS_PASSWORD` stored (`SETUP.md` 6) | Repository owner, with the CI password from the host operator | 1 |
-| 3 | Self-hosted runner registered and Idle (`SETUP.md` 7) | Host operator, with the registration token from the repository owner | 1 |
-| 4 | Release workflow (6.4) | Either. It runs only on the host | 2, 3 |
-| 5 | Deploy / rollback workflow (6.5) | Either. It runs only on the host | 2, 3 |
-| 6 | Demo rehearsal and screenshots (7, 6.7) | Host operator runs it, both capture | 4, 5 |
-| 7 | Report (6.7) | Repository owner | 6 |
-
-```mermaid
-sequenceDiagram
-    participant O as Repository owner
-    participant GH as GitHub
-    participant H as Host operator
-
-    H->>H: SETUP steps 1-5: Docker, clone, start + configure Nexus
-    H->>O: CI password, privately
-    O->>GH: store NEXUS_USER and NEXUS_PASSWORD secrets
-    O->>H: runner registration token, valid 1 hour
-    H->>GH: register runner with label nexus, runner shows Idle
-    O->>GH: push release.yml and deploy.yml
-    H->>GH: git tag v1.0.0 and push the tag
-    GH->>H: release workflow runs on the host's runner
-```
-
-### Access rules on a personal-account repository
-From GitHub's documented rules; not tested on this repository:
-- Collaborators get write access to code, but not to repository settings.
-- Creating Actions secrets and registering self-hosted runners are limited to the repository owner.
-- The runner registration token comes from Settings → Actions → Runners → New self-hosted runner, or `gh api -X POST repos/<owner>/devops-nexus-pipeline/actions/runners/registration-token`. It expires after one hour.
-- The CI password travels outside GitHub through a private channel and is never committed.
-
-### 6.1 Nexus provisioning: files done, host setup pending
-The files exist and are verified (section 2). What remains is running `SETUP.md` steps 1–5 on the host.
-
-**Done when:**
-- `curl http://localhost:8081/service/rest/v1/status` answers 200.
-- `docker login localhost:8082 -u ci` succeeds.
-
-### 6.2 Self-hosted runner: pending
-`SETUP.md` step 7.
-
-**Done when:** the runner shows as Idle with labels `self-hosted`, `nexus`.
-
-### 6.3 Maven publishing configuration: done
-`app/pom.xml` `distributionManagement` and `app/ci-settings.xml`. Verified in CI.
-
-### 6.4 Release workflow: not written
-- **File:** `.github/workflows/release.yml`
-- **Trigger:** tag push matching `v*.*.*`.
-- **Job:** `runs-on: [self-hosted, nexus]`, steps with `shell: bash`. `actions/setup-java@v6` provides JDK 21 on the runner.
-- **Sequence:** every command already exists in `nexus-setup-test.yml`, which is a working reference.
-  1. Version = tag without `v` (`${GITHUB_REF_NAME#v}`).
-  2. `./mvnw -B versions:set -DnewVersion=<v> -DgenerateBackupPoms=false`.
-  3. `./mvnw -B -s ci-settings.xml deploy`, which builds, runs the tests and publishes to `maven-releases`. Credentials come from `secrets.NEXUS_USER` / `secrets.NEXUS_PASSWORD` as env vars.
-  4. Empty `app/target/`, then download `http://localhost:8081/repository/maven-releases/com/devops/devops-app/<v>/devops-app-<v>.jar` into it with `curl -u`.
-  5. `docker login localhost:8082`, then `docker build --build-arg JAR_FILE=target/devops-app-<v>.jar -t localhost:8082/devops-app:<v> .` and `docker push`.
-  6. The deployment procedure (6.5).
-- **Done when:** tagging `v1.0.0` results in the jar and image visible in Nexus and the container serving `/api/version` = `1.0.0`.
-- **Expected failure, used in the demo:** re-running the release of an existing version fails at step 3, because `maven-releases` rejects redeploys. This was verified in CI.
-
-### 6.5 Deploy / rollback workflow: not written
-- **File:** `.github/workflows/deploy.yml`
-- **Trigger:** `workflow_dispatch` with a `version` input. The release workflow reuses the same steps, for example by calling this workflow with `workflow_call`, rather than duplicating them.
-- **Sequence:**
-  1. `docker login localhost:8082`, then `docker pull localhost:8082/devops-app:<v>`.
-  2. `docker rm -f devops-app` (ignore "no such container").
-  3. `docker run -d --name devops-app -p 8080:8080 --restart unless-stopped localhost:8082/devops-app:<v>`.
-  4. Poll `/actuator/health` until `UP`.
-  5. Fail unless `/api/version` reports `<v>`.
-- **Done when:** with `1.0.0` and `1.1.0` both released, deploying `1.0.0` makes `/api/version` report `1.0.0`, with no build step in that run.
-
-### 6.6 Snapshot publishing: optional, not written
-A job on `[self-hosted, nexus]` that runs on pushes to `main` and publishes the `-SNAPSHOT` jar with `./mvnw -s ci-settings.xml deploy`. It only succeeds while the runner is online. The existing cloud CI does not depend on it.
-
-### 6.7 Documentation for submission: not started
-- **Owner:** the repository owner writes the report. Nexus and deployment screenshots come from the host.
-- **Report contents:**
-  - introduction
-  - architecture (diagrams in `ARCHITECTURE.md`)
-  - tools and why each was chosen
-  - each pipeline stage
-  - Nexus concepts
-  - challenges, including:
-    - the RAM constraint that led to the two-machine split and to a GitHub Actions self-hosted runner instead of Jenkins
-    - the Nexus Community Edition EULA blocking all requests until accepted
-  - conclusion
-- **Screenshots:**
-  - a green CI run
-  - a red CI run caused by a failing test
-  - the Nexus browse view with several versions
-  - the `docker-hosted` contents
-  - `/api/version` before and after a rollback
-  - the rejected re-release
+**Challenges worth covering in the report:**
+- Laptop RAM: 0.73 GB free with Nexus running, measured. This led to the codespace host and to GitHub Actions with a self-hosted runner instead of Jenkins.
+- The Nexus Community Edition EULA blocks every request until accepted.
+- Nexus anonymous access had to be disabled before Maven would send credentials.
+- The dev container build failed on an expired Yarn signing key in the Java base image.
+- The runner started by `postStartCommand` was killed. Fixed with an entrypoint hook.
+- VS Code could not connect to the codespace from the laptop's network. Everything is operated through `gh codespace ssh` and port forwarding.
 
 ---
 
-## 7. Demo scenario the work is aiming at
+## 7. Open questions
 
-1. `/api/version` shows `1.0.0` running.
-2. A code change is pushed and tagged `v1.1.0`. The release workflow runs live, and `1.1.0` appears in Nexus and is deployed.
-3. A deliberately broken test is pushed. CI turns red, and nothing reaches Nexus.
-4. The `v1.1.0` release is re-run. Nexus rejects the duplicate release version.
-5. The deploy workflow is run with `1.0.0`. The old version is pulled from Nexus and running again with no rebuild.
-6. A specific jar version is downloaded from Nexus with `curl -u` and run with `java -jar`, showing the artifact is reusable outside Docker.
-
----
-
-## 8. Open questions
-
-- The host machine's operating system and free RAM.
-- Whether the faculty accepts a local deployment, or expects a cloud server such as AWS EC2.
+- Whether the faculty accepts a deployment to a cloud development environment (Codespaces), or expects a VM such as AWS EC2.
 - Whether the faculty requires Jenkins specifically. GitHub Actions was chosen because Jenkins needs more memory.
-- Optional extras not yet accepted or rejected:
-  - JaCoCo test-coverage report
-  - deployment to a cloud VM
-  - Nexus cleanup policies for old snapshots

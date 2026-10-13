@@ -1,20 +1,20 @@
-# Setup: Nexus Host Machine
+# Setup: the Host (GitHub Codespace)
 
-The complete procedure for preparing the machine that runs Nexus, the GitHub Actions self-hosted runner, and the deployed app. Each step lists its purpose, the commands for each operating system, the expected result, and known failure causes.
+The procedure for preparing the machine that runs Nexus, the GitHub Actions self-hosted runner, and the deployed app. In this project that machine is a **GitHub Codespace**: a Linux machine in GitHub's cloud, created from this repository and set up by `.devcontainer/devcontainer.json`.
 
-Everything in steps 3–5 (Nexus start, configuration, registry login, publishing) has been verified end to end on a fresh Linux machine by the workflow `.github/workflows/nexus-setup-test.yml`. The verified run is `37945141137`. Steps 1, 2, 6 and 7 depend on the host machine and have not been run by the project yet.
+Every step below has been carried out and verified on the project's codespace. Background on why these parts exist: [`ARCHITECTURE.md`](ARCHITECTURE.md). Names and values: section 4 of [`HANDOFF.md`](HANDOFF.md).
 
-Background on why these parts exist: [`ARCHITECTURE.md`](ARCHITECTURE.md). Names and values used below: section 4 of [`HANDOFF.md`](HANDOFF.md).
+Commands are run from a local terminal with the GitHub CLI (`gh`). Opening the codespace in VS Code (browser or desktop) also works where the network allows it, but nothing below depends on it.
 
 ---
 
-## What the machine ends up running
+## What the codespace runs
 
 ```mermaid
 flowchart LR
-    subgraph host["Nexus host machine"]
-        runner["GitHub Actions runner<br/>labels: self-hosted, nexus"]
-        subgraph docker["Docker"]
+    subgraph cs["Codespace (Debian 12, 2 cores, 8 GB)"]
+        runner["GitHub Actions runner<br/>codespace-nexus<br/>labels: self-hosted, nexus"]
+        subgraph docker["Docker engine"]
             nexus[("nexus container<br/>:8081 UI + Maven<br/>:8082 Docker registry")]
             app["devops-app container<br/>:8080"]
         end
@@ -22,107 +22,80 @@ flowchart LR
     gh["GitHub"] <-- "outbound HTTPS only,<br/>runner polls for jobs" --> runner
     runner -- "mvn deploy, docker push/pull" --> nexus
     runner -- "docker run" --> app
+    laptop["Laptop"] -- "gh codespace ports forward" --> nexus
+    laptop -- "gh codespace ports forward" --> app
 ```
 
-## Requirements
+## Why a codespace
 
-| Item | Requirement |
-|---|---|
-| OS | Windows 10/11 (with WSL 2), macOS, or Linux |
-| Memory | Nexus measured at about 1.2 GB with this project's settings. Docker, the runner, the app (~300 MB) and the OS come on top. A machine with 8 GB total and about 3 GB free while running is a comfortable minimum. |
-| Disk | About 3 GB for the images, plus Nexus data |
-| Ports free | 8081, 8082, 8080 |
-| Network | Outbound internet access. No inbound ports are needed. |
-| GitHub access | The repository owner or an admin of the repository is needed for steps 6 and 7 (secrets and runner registration). |
+- The project laptop has 7.4 GB RAM. Measured on it, Docker Desktop plus Nexus left 0.73 GB free, too little for a build and the app.
+- On the codespace, Nexus uses 1.22 GB and about 5.5 GB stays available.
+- Codespaces usage on a personal account is covered by a monthly free allowance (120 core-hours and 15 GB-month of storage on GitHub Free). The 2-core machine uses 2 core-hours per hour of running. Without a payment method on the account, usage beyond the allowance is blocked, not billed.
 
 ---
 
-## Step 1: Install Git, Docker and the GitHub CLI
+## Step 1: Create the codespace
 
-**Purpose:** Docker runs Nexus and the app. Git fetches the repository. The GitHub CLI (`gh`) sets secrets from the terminal; it's optional, because the web UI works too.
+```bash
+gh auth refresh -h github.com -s codespace     # once: lets gh manage codespaces
+gh codespace create -R manaymehta/devops-nexus-pipeline -b main \
+  -m basicLinux32gb --idle-timeout 30m --display-name devops-nexus-host
+```
 
-| OS | Install |
+**What happens:** GitHub builds the container described in `.devcontainer/devcontainer.json`:
+
+| Part | Purpose |
 |---|---|
-| Windows | `winget install Git.Git Docker.DockerDesktop GitHub.cli`. Docker Desktop needs WSL 2 (`wsl --install`, then reboot). Git for Windows includes **Git Bash**, which runs the project's `.sh` scripts. |
-| macOS | `brew install git gh` and `brew install --cask docker`, then open Docker Desktop once |
-| Linux (Debian/Ubuntu) | Docker Engine with the Compose plugin from https://docs.docker.com/engine/install/, then `sudo usermod -aG docker $USER` and log out and in again. Also `sudo apt install git gh curl`. |
+| Image `mcr.microsoft.com/devcontainers/base:1-bookworm` | Plain Debian 12 |
+| Feature `java:1` version 21 | JDK 21 for builds and `java -jar` |
+| Feature `docker-in-docker:2` | A Docker engine inside the codespace |
+| Feature `sshd:1` | Lets `gh codespace ssh` open a terminal in the codespace |
+| Local feature `./runner-autostart` | Starts the self-hosted runner whenever the codespace starts (step 5) |
+| `hostRequirements` | At least 2 cores and 8 GB |
 
-**Expected result:**
+**Expected result:** `gh codespace list` shows the codespace as `Available`, and
+
+```bash
+gh codespace ssh -c <codespace-name> -- 'java -version; docker version; docker compose version'
 ```
-docker run --rm hello-world     -> prints "Hello from Docker!"
-docker compose version          -> prints a version
-git --version
-```
+
+prints Java 21, a Docker server version and a Compose version.
 
 **Known failures:**
-- `docker: command not found` or `cannot connect to the Docker daemon`: Docker Desktop is not started (Windows/macOS), or the user is not in the `docker` group (Linux; log out and in after `usermod`).
+
+| Symptom | Cause |
+|---|---|
+| No Java or Docker, and the codespace log mentions a recovery container | The dev container build failed. The log is at `/workspaces/.codespaces/.persistedshare/creation.log`. An earlier version of this setup used the `devcontainers/java` image, whose Yarn apt source has a signing key that no longer verifies. That broke the Docker feature's `apt-get update`, which is why the plain Debian image is used. |
+| `gh codespace ssh` asks to add the sshd feature | The `sshd:1` feature is missing from `devcontainer.json`. |
 
 ---
 
-## Step 2: Get the repository
+## Step 2: Start and configure Nexus
+
+Open a terminal in the codespace with `gh codespace ssh -c <codespace-name>`. Then:
 
 ```bash
-git clone https://github.com/manaymehta/devops-nexus-pipeline.git
-cd devops-nexus-pipeline
-```
-
-If the repository was transferred to another account, the URL contains that account name instead. GitHub also redirects the old URL.
-
-**Expected result:** the folders `app/`, `infra/nexus/`, `docs/` and `.github/workflows/` exist.
-
----
-
-## Step 3: Start Nexus
-
-```bash
-cd infra/nexus
+cd /workspaces/devops-nexus-pipeline/infra/nexus
 docker compose up -d
+cp .env.example .env && nano .env
+bash setup-nexus.sh
 ```
 
-**What happens:**
-- Docker downloads `sonatype/nexus3:3.96.4` (about 480 MB, first time only).
-- It starts the container `nexus` with a 1 GB Java heap.
-- It stores all Nexus data in the Docker volume `nexus-data`, which survives restarts and `docker compose down`.
-
-**Expected result:**
-- `docker ps` lists `nexus` as `Up`.
-- After 1–3 minutes, http://localhost:8081 shows the Nexus web UI.
-- Configuration happens in step 4, so the UI's first-run wizard can be left alone.
-
-**Known failures:**
-- `port is already allocated`: something else uses 8081 or 8082. It shows up with `netstat -ano | findstr :8081` (Windows) or `lsof -i :8081` (macOS/Linux).
-- The container keeps restarting: `docker logs nexus` usually shows an out-of-memory error, meaning too little free RAM.
-
----
-
-## Step 4: Configure Nexus
-
-**Purpose:** `infra/nexus/setup-nexus.sh` performs the whole Nexus configuration through its REST API, instead of clicking through the UI. It is safe to run again: each part checks whether it's already done.
-
-```bash
-# still in infra/nexus
-cp .env.example .env
-```
-
-Then edit `.env`:
+**`.env` values:**
 
 | Variable | Meaning |
 |---|---|
 | `NEXUS_ADMIN_PASSWORD` | New password for the Nexus `admin` account |
-| `NEXUS_CI_PASSWORD` | Password for the `ci` account the pipeline uses. The same value becomes the GitHub secret `NEXUS_PASSWORD` in step 6. |
-| `NEXUS_ACCEPT_EULA` | `yes` after reading https://links.sonatype.com/products/nxrm/ce-eula. Nexus Community Edition is free, but it refuses to store or serve anything (HTTP 403, even for admin) until its licence is accepted. |
+| `NEXUS_CI_PASSWORD` | Password for the `ci` account the pipeline uses. It becomes the GitHub secret `NEXUS_PASSWORD`. |
+| `NEXUS_ACCEPT_EULA` | `yes` after reading https://links.sonatype.com/products/nxrm/ce-eula. Nexus Community Edition refuses to store or serve anything (HTTP 403, even for admin) until its licence is accepted. |
 
-Passwords must not contain `"` or `\`. `.env` is git-ignored and never committed.
+- Passwords must not contain `"` or `\`.
+- `.env` is git-ignored.
+- On the project codespace, both passwords were generated randomly (24 letters and digits).
+- To read them: `gh codespace ssh -c <codespace-name> -- cat /workspaces/devops-nexus-pipeline/infra/nexus/.env`.
 
-Run the script with bash. On Windows, use **Git Bash**, not PowerShell or cmd:
-
-```bash
-bash setup-nexus.sh
+**Expected output of `setup-nexus.sh`:**
 ```
-
-**Expected output:**
-```
-==> Waiting for Nexus at http://localhost:8081 (first start can take a few minutes)
 ==> Nexus is ready
 ==> Admin password changed
 ==> EULA accepted
@@ -131,116 +104,121 @@ bash setup-nexus.sh
 ==> Repository docker-hosted created (HTTP connector on port 8082)
 ==> Role ci-deployer created
 ==> User ci created
-
-Nexus is configured.
 ```
 
-A second run prints `already ...` for each line.
+A second run prints `already ...` for each item.
 
 **What now exists in Nexus:**
 
 | Item | Purpose |
 |---|---|
-| `maven-releases` (built in) | Final versions such as `1.0.0`. Re-uploading an existing version is rejected. |
+| `maven-releases` (built in) | Final versions such as `1.0.0`. Re-uploading an existing version is rejected with HTTP 409. |
 | `maven-snapshots` (built in) | Work-in-progress `-SNAPSHOT` builds, which can be overwritten |
 | `docker-hosted` (created) | Docker images, served as a registry on port 8082 |
 | Role `ci-deployer` | Read/write on those three repositories, nothing else |
 | User `ci` | The account the pipeline logs in with |
 
-**Known failures:**
+**Checks (all verified):**
 
-| Symptom | Cause |
+| Check | Expected |
 |---|---|
-| `$'\r': command not found` | The script was checked out with Windows line endings. The repository's `.gitattributes` prevents this for fresh clones. For a clone made before that file existed: `git pull`, then `rm infra/nexus/setup-nexus.sh && git checkout -- infra/nexus/setup-nexus.sh`. |
-| `admin login failed and /nexus-data/admin.password is gone` | The admin password was changed earlier to something other than `NEXUS_ADMIN_PASSWORD`. Either put the current password in `.env`, or reset Nexus completely with `docker compose down -v` (deletes all Nexus data) and start again from step 3. |
-| `ERROR: Nexus Community Edition requires accepting its End User License Agreement` | `NEXUS_ACCEPT_EULA` is not `yes`. |
-| Repository requests answer 403 with a message about the EULA | Same cause: EULA not accepted. |
+| `curl -s -o /dev/null -w '%{http_code}' localhost:8081/service/rest/v1/status` | `200` |
+| `docker login localhost:8082 -u ci` | `Login Succeeded` |
+| A repository request without credentials | `401` |
 
 ---
 
-## Step 5: Verify the registry and Maven repositories
+## Step 3: Store the Nexus credentials as GitHub secrets
+
+Run from the local clone. This needs the repository owner or an admin.
 
 ```bash
-docker login localhost:8082 -u ci          # password: NEXUS_CI_PASSWORD
+printf %s ci | gh secret set NEXUS_USER
+gh codespace ssh -c <codespace-name> -- \
+  'grep "^NEXUS_CI_PASSWORD=" /workspaces/devops-nexus-pipeline/infra/nexus/.env | cut -d= -f2- | tr -d "\r\n"' \
+  | tr -d '\r\n' | gh secret set NEXUS_PASSWORD
 ```
 
-**Expected result:** `Login Succeeded`.
-
-Docker allows plain-HTTP registries on `localhost` without extra configuration. A registry on any other host name or IP would need HTTPS or an `insecure-registries` entry in Docker's daemon settings, which this project avoids by always using `localhost` from the host itself.
-
-Optional publish test from the host. It needs JDK 21, which the self-hosted runner later downloads by itself:
-
-```bash
-cd app
-NEXUS_USER=ci NEXUS_PASSWORD=<NEXUS_CI_PASSWORD> ./mvnw -s ci-settings.xml deploy -DskipTests
-```
-
-**Expected result:** `BUILD SUCCESS`. The jar then appears in the Nexus UI under Browse → `maven-snapshots` → `com/devops/devops-app`.
-
----
-
-## Step 6: Store the Nexus credentials as GitHub secrets
-
-**Purpose:** workflows read the `ci` login from encrypted repository secrets, so it never appears in code or logs.
-
-**Who:** the repository owner, or an admin of the repository. On a personal-account repository, collaborators cannot manage secrets.
-
-With the GitHub CLI, from inside the cloned repository:
-
-```bash
-gh auth login                      # once, if not logged in
-gh secret set NEXUS_USER --body ci
-gh secret set NEXUS_PASSWORD       # prompts for the value: NEXUS_CI_PASSWORD
-```
-
-Or on the web: repository → Settings → Secrets and variables → Actions → New repository secret.
+The second command copies the password from the codespace into the secret without printing it.
 
 **Expected result:** `gh secret list` shows `NEXUS_USER` and `NEXUS_PASSWORD`.
 
 ---
 
-## Step 7: Install the self-hosted runner
+## Step 4: Install and register the self-hosted runner
 
-**Purpose:** GitHub's cloud machines cannot reach `localhost:8081` on this machine. The runner is a small GitHub program on this machine. It asks GitHub for jobs over an outbound connection and runs them locally, where Nexus and Docker are reachable.
+**Purpose:** GitHub's cloud runners cannot reach Nexus on the codespace. The runner is GitHub's agent program running inside the codespace. It asks GitHub for jobs over an outbound connection and runs them where Nexus and Docker are reachable.
 
-**Who:** registering needs a one-time token. Only the repository owner or an admin can see it. If someone else operates this machine, the owner opens the page below and passes on the token, which expires after one hour.
+The runner lives in `/workspaces/actions-runner`, outside the repository folder. `/workspaces` survives codespace stops and rebuilds.
 
-1. On GitHub: repository → **Settings** → **Actions** → **Runners** → **New self-hosted runner**, then choose this machine's OS and architecture.
-2. The page shows exact *Download* and *Configure* commands, including the token. Run them in a folder **outside** the repository, for example `C:\actions-runner` or `~/actions-runner`.
-3. During `config.sh` / `config.cmd`, the prompts are:
-   - runner group: Enter (default)
-   - runner name: Enter (default) or any name
-   - **additional labels: `nexus`** (`self-hosted` is added automatically)
-   - work folder: Enter (default)
-   - On Windows, *"run as service?"*: **N**. A runner started from the user's own terminal can use Docker Desktop. A service account typically cannot.
-4. Start the runner:
+```bash
+# in the codespace: download and verify (version from https://github.com/actions/runner/releases)
+mkdir -p /workspaces/actions-runner && cd /workspaces/actions-runner
+curl -sSLO https://github.com/actions/runner/releases/download/v2.338.0/actions-runner-linux-x64-2.338.0.tar.gz
+sha256sum actions-runner-linux-x64-2.338.0.tar.gz   # compare with the SHA on the release page
+tar xzf actions-runner-linux-x64-2.338.0.tar.gz && rm actions-runner-linux-x64-2.338.0.tar.gz
+```
 
-   | OS | Command (in the runner folder) |
-   |---|---|
-   | Windows | `.\run.cmd` |
-   | macOS / Linux | `./run.sh` |
+```bash
+# locally: get a registration token (valid one hour, owner/admin only) and register
+TOKEN=$(gh api -X POST repos/manaymehta/devops-nexus-pipeline/actions/runners/registration-token --jq .token)
+gh codespace ssh -c <codespace-name> -- "cd /workspaces/actions-runner && ./config.sh --unattended \
+  --url https://github.com/manaymehta/devops-nexus-pipeline --token $TOKEN \
+  --name codespace-nexus --labels nexus --work _work --replace"
+```
 
-   The terminal stays open while the runner works. Closing it stops the runner. On Linux it can be installed as a service instead: `sudo ./svc.sh install && sudo ./svc.sh start`. The service user then needs to be in the `docker` group.
-
-**Expected result:** the terminal prints `Listening for Jobs`, and the runner shows as **Idle** under Settings → Actions → Runners, with labels `self-hosted`, `nexus` and the OS.
-
-**Windows-specific notes** (not yet verified on a real Windows runner in this project):
-- Workflow steps for the self-hosted runner are written with `shell: bash`. On Windows the runner uses the first `bash` found on `PATH`. `where bash` in cmd shows the order. If `C:\Windows\System32\bash.exe` (WSL) comes before `C:\Program Files\Git\bin\bash.exe`, steps run inside WSL, where Docker and paths differ. Putting `C:\Program Files\Git\bin` earlier in the user `PATH`, then restarting the runner, avoids this.
-- `curl` is built into Windows 10/11.
+**Expected result:** after step 5 starts it, `gh api repos/manaymehta/devops-nexus-pipeline/actions/runners` lists `codespace-nexus` as `online`, with labels `self-hosted, X64, nexus, Linux`.
 
 ---
 
-## After setup
+## Step 5: Runner start on every codespace start
 
-With steps 1–7 done, the remaining project work is the release and deploy workflows described in sections 6.4 and 6.5 of [`HANDOFF.md`](HANDOFF.md). `.github/workflows/nexus-setup-test.yml` already performs every command those workflows need (version set, `deploy` with `ci-settings.xml`, jar download from Nexus, image build from that jar, push, pull, run, version check), so it is a working reference for them.
+A codespace stops after 30 idle minutes, and the runner process stops with it. Two mechanisms bring everything back on the next start:
 
-## Everyday commands on the host
-
-| Purpose | Command |
+| What | How it restarts |
 |---|---|
-| Stop Nexus (keeps data) | `cd infra/nexus && docker compose down` |
-| Start Nexus again | `cd infra/nexus && docker compose up -d` |
+| Nexus | Its container has `restart: unless-stopped`, so Docker starts it again once the Docker engine is up |
+| Runner | The local feature `.devcontainer/runner-autostart` installs a hook into the container's entrypoint. The hook runs `.devcontainer/start-runner.sh` as the `vscode` user. |
+
+`start-runner.sh` does nothing if the runner is not registered or already running. It can also be run by hand:
+
+```bash
+bash /workspaces/devops-nexus-pipeline/.devcontainer/start-runner.sh
+```
+
+**Why not `postStartCommand`:** a runner started from `postStartCommand` was stopped within milliseconds of that command finishing, as the codespace creation log showed. Processes started from the container entrypoint, like the Docker engine and the SSH server, keep running.
+
+**Verified:** after a rebuild and after a stop/start, the runner came back online with no manual step. Nexus kept all its configuration, so its data volume survived the rebuild.
+
+**Timing after a start:** the Docker engine, and with it Nexus, take a few minutes to come up after the codespace starts. The runner can come online before Nexus answers.
+
+---
+
+## Everyday use
+
+| Purpose | Command (locally) |
+|---|---|
+| Start the codespace | `gh codespace ssh -c <name> -- true` (any ssh starts it), or open it from github.com/codespaces |
+| Stop it (saves free hours) | `gh codespace stop -c <name>` |
+| Terminal in the codespace | `gh codespace ssh -c <name>` |
+| Open the app and Nexus on the laptop | `gh codespace ports forward 8080:8080 8081:8081 -c <name>`, then http://localhost:8080/api/version and http://localhost:8081 |
+| Runner status | `gh api repos/manaymehta/devops-nexus-pipeline/actions/runners --jq '.runners[] \| "\(.name) \(.status)"'` |
+| Nexus passwords | `gh codespace ssh -c <name> -- cat /workspaces/devops-nexus-pipeline/infra/nexus/.env` |
+
+| Purpose | Command (in the codespace) |
+|---|---|
+| Running app version | `curl localhost:8080/api/version` |
 | Nexus logs | `docker logs -f nexus` |
-| Memory use | `docker stats --no-stream` |
-| Delete Nexus and **all** stored artifacts | `cd infra/nexus && docker compose down -v` |
-| Running app version | `curl http://localhost:8080/api/version` |
+| Runner log | `tail -f /workspaces/actions-runner/runner.log` |
+| Memory use | `docker stats --no-stream; free -m` |
+| Delete Nexus and **all** stored artifacts | `cd /workspaces/devops-nexus-pipeline/infra/nexus && docker compose down -v` |
+
+---
+
+## On a local machine instead
+
+The same files work on any machine with Docker and about 3 GB of free RAM:
+- Start Nexus with `docker compose up -d` in `infra/nexus`, then run `setup-nexus.sh`, in Git Bash on Windows.
+- Register a runner from repository → Settings → Actions → Runners → New self-hosted runner, adding the label `nexus`.
+
+This was not used for the project, because the laptop has too little memory. On Windows, the runner runs `shell: bash` steps with the first `bash` on `PATH`. That should be Git Bash, not WSL's `System32\bash.exe`.
