@@ -5,7 +5,7 @@ This document describes the project's state precisely enough for a person, or an
 - How the system works: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 - How the host (a GitHub Codespace) is set up and operated: [`SETUP.md`](SETUP.md).
 
-Last updated: 2026-10-13.
+Last updated: 2026-10-14.
 
 ---
 
@@ -55,13 +55,15 @@ Last updated: 2026-10-13.
 
 | Repository | Contents |
 |---|---|
-| `maven-releases` | `devops-app` 1.0.0 and 1.1.0 |
-| `docker-hosted` | `devops-app:1.0.0` and `devops-app:1.1.0` |
+| `maven-releases` | `devops-app` 1.0.0, 1.1.0 and 1.2.0 |
+| `docker-hosted` | `devops-app:1.0.0`, `1.1.0` and `1.2.0` |
 | `maven-snapshots` | empty |
 
-Deployed at last check: **1.0.0** (after the rollback test).
+Deployed at last check: **1.1.0** (end of the demo rehearsal on 2026-10-14, Deploy run `38521064677`).
 
-**The next release version is `1.2.0` or higher.** 1.0.0 and 1.1.0 exist and cannot be released again.
+The full demo (section 5) was rehearsed on 2026-10-14 with `v1.2.0`: release, broken-test commit `9324959` and its revert `a75207a`, rejected re-run, rollback to 1.1.0.
+
+**The next release version is `1.3.0` or higher.** 1.0.0, 1.1.0 and 1.2.0 exist and cannot be released again.
 
 ---
 

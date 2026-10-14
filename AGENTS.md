@@ -29,7 +29,7 @@ This repository is a college DevOps lab project: a CI/CD pipeline for a small Sp
   - the deployed `devops-app` container on port 8080
 
   It stops after 30 idle minutes. Nexus and the runner restart by themselves when it starts again.
-- **Released versions:** 1.0.0 and 1.1.0 exist in Nexus. Release versions cannot be published twice, so the next release is 1.2.0 or higher.
+- **Released versions:** 1.0.0, 1.1.0 and 1.2.0 exist in Nexus. Release versions cannot be published twice, so the next release is 1.3.0 or higher.
 - **Matching values:** the names in section 4 of `docs/HANDOFF.md` (ports, repository names, secret names, runner labels, image name) are relied on by the workflows and Nexus. They are expected to stay as listed, unless every place that uses them is changed together.
 
 ## Codebase facts that commonly trip up changes
