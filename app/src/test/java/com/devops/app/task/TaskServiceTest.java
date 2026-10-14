@@ -21,7 +21,7 @@ class TaskServiceTest {
 		Task second = service.create("Configure Nexus");
 
 		assertThat(first.id()).isEqualTo(1);
-		assertThat(first.title()).isEqualTo("Write Dockerfile!");
+		assertThat(first.title()).isEqualTo("Write Dockerfile");
 		assertThat(first.done()).isFalse();
 		assertThat(second.id()).isEqualTo(2);
 	}
